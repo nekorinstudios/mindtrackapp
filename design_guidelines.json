@@ -1,0 +1,158 @@
+{
+  "theme": "Light",
+  "archetype": "Organic & Earthy",
+  "mood": "Warm, supportive, professional wellness aesthetic - not clinical, not childish.",
+  "colors": {
+    "background": {
+      "primary": "#FBF9F6",
+      "secondary": "#FFFFFF",
+      "tertiary": "#F2EBE5"
+    },
+    "text": {
+      "primary": "#2D3328",
+      "secondary": "#5C6656",
+      "tertiary": "#8A9483"
+    },
+    "brand": {
+      "primary": "#9EAB97",
+      "secondary": "#C27B66",
+      "accent": "#E3A387"
+    },
+    "energy_meter": {
+      "green_90_100": "#658D5D",
+      "yellow_51_89": "#DDB75A",
+      "orange_41_50": "#D08955",
+      "red_31_40": "#B75D53",
+      "black_1_30": "#2A2A2A"
+    },
+    "borders": {
+      "light": "#E8E3DD",
+      "focus": "#9EAB97"
+    }
+  },
+  "typography": {
+    "strategy": "Warm Humanist + Clean Geometric. Uses Outfit for headings for a friendly yet structured feel, and Work Sans for high legibility in body text.",
+    "fonts": {
+      "headings": "Outfit",
+      "body": "Work Sans"
+    },
+    "scale": {
+      "h1": "text-4xl font-bold tracking-tight text-[#2D3328]",
+      "h2": "text-2xl font-bold tracking-tight text-[#2D3328]",
+      "h3": "text-xl font-semibold text-[#2D3328]",
+      "body": "text-base font-normal text-[#5C6656] leading-relaxed",
+      "small": "text-sm font-medium text-[#8A9483]"
+    }
+  },
+  "layout_spacing": {
+    "strategy": "Generous Spacing Philosophy. Native mobile screens need breathing room to avoid feeling clinical or overwhelming.",
+    "container_padding": "p-6",
+    "section_gap": "gap-8",
+    "item_gap": "gap-4",
+    "border_radius": {
+      "card": "rounded-2xl",
+      "button": "rounded-xl",
+      "input": "rounded-xl",
+      "pill": "rounded-full"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#9EAB97] rounded-xl py-4 px-6 flex items-center justify-center",
+      "primary_text": "text-white font-semibold text-base",
+      "secondary": "bg-[#F2EBE5] rounded-xl py-4 px-6 flex items-center justify-center",
+      "secondary_text": "text-[#2D3328] font-semibold text-base",
+      "outline": "border-2 border-[#9EAB97] rounded-xl py-4 px-6 bg-transparent flex items-center justify-center",
+      "outline_text": "text-[#9EAB97] font-semibold text-base"
+    },
+    "cards": {
+      "default": "bg-white rounded-2xl p-6 border border-[#E8E3DD]"
+    },
+    "inputs": {
+      "text": "bg-[#FBF9F6] border border-[#E8E3DD] rounded-xl p-4 text-base text-[#2D3328]",
+      "checkbox": "w-6 h-6 rounded-md border-2 border-[#9EAB97]"
+    },
+    "bottom_navigation": {
+      "container": "bg-white border-t border-[#E8E3DD] pb-safe pt-2 flex-row justify-around items-center",
+      "active_color": "#9EAB97",
+      "inactive_color": "#8A9483",
+      "tabs": ["Home", "Tasks", "Rewards", "Journal", "Graphs", "Send"]
+    },
+    "energy_meter": {
+      "description": "A smooth, native touch-slider that snaps or transitions between 5 distinct color bands based on percentage.",
+      "logic": "0-30 = #2A2A2A, 31-40 = #B75D53, 41-50 = #D08955, 51-89 = #DDB75A, 90-100 = #658D5D"
+    }
+  },
+  "screens": {
+    "auth": {
+      "layout": "Centered content with soft top illustration. Email/Password inputs + Google Login SSO button.",
+      "onboarding": "Multi-step flow. 'Take a test' or select explicitly from ADHD, Bipolar, Autism."
+    },
+    "home": {
+      "layout": "Energy meter at the top (prominent), followed by the daily symptom checklist. Smooth scrolling list. 'Submit' button triggers reward fill animation and navigates.",
+      "symptom_list": "Vertical list of toggleable items."
+    },
+    "tasks": {
+      "layout": "Checklist of tasks. Includes a floating or inline Music Player (Play/Pause/Skip) for admin-uploaded music.",
+      "timer_settings": "Segmented control or dropdown for 5/10/15/20/25/30 min notification intervals.",
+      "logic": "10-minute minimum between task completions to prevent cheating."
+    },
+    "rewards": {
+      "layout": "Central large visual puzzle piece (Flower Vase, Candy Jar, or Envelope). Progress bar showing 30-day fill status.",
+      "logic": "When task is completed, an animation adds an item (e.g., 1 flower) to the jar. Once 30 days are filled, an admin notice triggers."
+    },
+    "journal": {
+      "layout": "Large text area with auto-populated timestamp header (editable). List of recent entries below, syncing with symptom checks."
+    },
+    "graphs": {
+      "layout": "Line chart or smooth spline showing symptom frequency and energy levels over time. Uses the energy meter colors for data points."
+    },
+    "send": {
+      "layout": "Form to enter Doctor's email. Preview of the PDF/Chart to be sent."
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "category": "backgrounds",
+        "description": "Calming sand texture for auth or onboarding background headers.",
+        "url": "https://images.unsplash.com/photo-1763584107441-bdb2fd9041b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwyfHxjYWxtaW5nJTIwc2FuZCUyMHRleHR1cmV8ZW58MHx8fHwxNzc3MDI3Nzc0fDA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "rewards",
+        "description": "Minimalist flower vase base for the reward graphic",
+        "url": "https://images.unsplash.com/photo-1593956426409-6dd9c862d8c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwxfHxmbG93ZXIlMjB2YXNlJTIwbWluaW1hbHxlbnwwfHx8fDE3NzcwMjc3ODh8MA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "rewards",
+        "description": "Glass candy jar base for the reward graphic",
+        "url": "https://images.unsplash.com/photo-1774569037254-6ff874a9af40?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwyfHxnbGFzcyUyMGNhbmR5JTIwamFyfGVufDB8fHx8MTc3NzAyNzc4OHww&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "rewards",
+        "description": "Gift envelope base for the reward graphic",
+        "url": "https://images.unsplash.com/photo-1603104662763-328f08c9a423?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwxfHxnaWZ0JTIwZW52ZWxvcGV8ZW58MHx8fHwxNzc3MDI3Nzg4fDA&ixlib=rb-4.1.0&q=85"
+      }
+    ],
+    "icons_strategy": "Use Lucide-React-Native. Ensure stroke width is 1.5 to 2.0 for a delicate, professional look."
+  },
+  "testing": {
+    "attributes": "All interactive elements must use testID in kebab-case format.",
+    "examples": [
+      "testID='login-submit-button'",
+      "testID='energy-slider'",
+      "testID='symptom-checkbox-anxiety'",
+      "testID='tab-rewards'"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "CRITICAL: This is a React Native Expo SDK 54 application. Do not use DOM elements like <div>, <span>, or <button>.",
+    "Instead, use React Native primitives like <View>, <Text>, <TextInput>, <TouchableOpacity>.",
+    "If using NativeWind, use the provided Tailwind classes via the 'className' prop. Otherwise, convert these classes to React Native StyleSheet objects.",
+    "Implement the 5-color Energy Meter touch-slider using a gesture handler or slider library that can map exact percentage values to the specified colors.",
+    "Set up 6 distinct tabs via @react-navigation/bottom-tabs: Home, Tasks, Rewards, Journal, Graphs, Send.",
+    "Use testID property instead of data-testid for end-to-end and component testing in React Native.",
+    "Use lucide-react-native for all iconography, maintaining a stroke width of 1.5-2.",
+    "For the Rewards graphics (flower vase, candy jar, envelope), use the provided placeholder images and implement absolute positioning logic to visually 'fill' them over the 30-day tracking period."
+  ]
+}
