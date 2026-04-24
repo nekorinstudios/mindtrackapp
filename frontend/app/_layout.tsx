@@ -14,7 +14,7 @@ export default function RootLayout() {
           <Stack
             screenOptions={{
               headerShown: false,
-              contentStyle: { backgroundColor: "#FBF9F6" },
+              contentStyle: { backgroundColor: "#FFFDF7" },
             }}
           />
         </AuthProvider>

@@ -55,20 +55,20 @@ export function formatApiError(err: any): string {
 }
 
 export const COLORS = {
-  bg: "#FBF9F6",
+  bg: "#FFFDF7",
   bg2: "#FFFFFF",
-  bg3: "#F2EBE5",
-  text: "#2D3328",
-  text2: "#5C6656",
-  text3: "#8A9483",
-  brand: "#9EAB97",
-  brand2: "#C27B66",
-  accent: "#E3A387",
-  border: "#E8E3DD",
-  e_green: "#658D5D",
-  e_yellow: "#DDB75A",
-  e_orange: "#D08955",
-  e_red: "#B75D53",
+  bg3: "#FFF1DE",
+  text: "#1B2420",
+  text2: "#435048",
+  text3: "#8A988F",
+  brand: "#2BBF8A",
+  brand2: "#FF6B6B",
+  accent: "#FFB347",
+  border: "#F0E6DA",
+  e_green: "#3BD16F",
+  e_yellow: "#FFD93D",
+  e_orange: "#FF9D42",
+  e_red: "#FF4E4E",
   e_black: "#2A2A2A",
 };
 

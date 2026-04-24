@@ -18,7 +18,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#9EAB97"
+        "backgroundColor": "#2BBF8A"
       },
       "edgeToEdgeEnabled": true,
       "permissions": ["POST_NOTIFICATIONS", "VIBRATE"]
@@ -36,7 +36,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FBF9F6"
+          "backgroundColor": "#FFFDF7"
         }
       ]
     ],

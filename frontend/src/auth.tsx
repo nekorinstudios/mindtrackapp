@@ -29,7 +29,14 @@ type AuthCtx = {
 const AuthContext = createContext<AuthCtx | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [user, setUser] = useState<User | null | undefined>(() => {
+    // On web we can synchronously read localStorage to avoid a flash
+    try {
+      const w = (globalThis as any).localStorage;
+      if (w && !w.getItem("access_token")) return null;
+    } catch {}
+    return undefined;
+  });
 
   const refresh = useCallback(async () => {
     let token: string | null = null;
