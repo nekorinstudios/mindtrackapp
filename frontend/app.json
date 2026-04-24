@@ -38,8 +38,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#FBF9F6"
         }
-      ],
-      "expo-av"
+      ]
     ],
     "experiments": {
       "typedRoutes": true

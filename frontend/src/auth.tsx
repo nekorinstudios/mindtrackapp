@@ -32,7 +32,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
 
   const refresh = useCallback(async () => {
-    const token = await getToken();
+    let token: string | null = null;
+    try {
+      token = await getToken();
+    } catch {
+      token = null;
+    }
     if (!token) {
       setUser(null);
       return;
@@ -41,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data } = await api.get<User>("/auth/me");
       setUser(data);
     } catch {
-      await clearToken();
+      try { await clearToken(); } catch {}
       setUser(null);
     }
   }, []);

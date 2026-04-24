@@ -18,13 +18,28 @@ api.interceptors.request.use(async (config) => {
 });
 
 export async function saveToken(token: string) {
-  await AsyncStorage.setItem("access_token", token);
+  try {
+    await AsyncStorage.setItem("access_token", token);
+  } catch {
+    try { (globalThis as any).localStorage?.setItem("access_token", token); } catch {}
+  }
 }
 export async function clearToken() {
-  await AsyncStorage.removeItem("access_token");
+  try {
+    await AsyncStorage.removeItem("access_token");
+  } catch {}
+  try { (globalThis as any).localStorage?.removeItem("access_token"); } catch {}
 }
 export async function getToken() {
-  return AsyncStorage.getItem("access_token");
+  try {
+    const t = await AsyncStorage.getItem("access_token");
+    if (t) return t;
+  } catch {}
+  try {
+    return (globalThis as any).localStorage?.getItem("access_token") ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function formatApiError(err: any): string {
