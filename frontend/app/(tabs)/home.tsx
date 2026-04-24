@@ -57,16 +57,11 @@ export default function Home() {
 
   const submit = async () => {
     const list = Object.keys(selected).filter((k) => selected[k]);
-    if (list.length === 0) {
-      Alert.alert("Nothing selected", "Tap any symptoms you're experiencing, then submit.");
-      return;
-    }
     setSubmitting(true);
     try {
-      await Promise.all([
-        api.post("/symptoms/log", { symptoms: list }),
-        api.post("/energy/log", { percent: energy }),
-      ]);
+      const calls: Promise<any>[] = [api.post("/energy/log", { percent: energy })];
+      if (list.length > 0) calls.push(api.post("/symptoms/log", { symptoms: list }));
+      await Promise.all(calls);
       setSelected({});
       router.push("/(tabs)/rewards");
     } catch (e: any) {
