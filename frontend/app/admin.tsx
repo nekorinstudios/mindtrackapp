@@ -129,10 +129,10 @@ export default function Admin() {
             disabled={uploading}
           >
             {uploading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color="#0B0B0B" />
             ) : (
               <>
-                <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+                <Ionicons name="cloud-upload-outline" size={16} color="#0B0B0B" />
                 <Text style={styles.btnText}>Pick & upload audio</Text>
               </>
             )}
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
-  btnText: { color: "#fff", fontWeight: "700" },
+  btnText: { color: "#0B0B0B", fontWeight: "700" },
   row: {
     flexDirection: "row",
     alignItems: "center",

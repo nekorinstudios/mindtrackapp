@@ -128,7 +128,7 @@ export default function Login() {
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color="#0B0B0B" />
             ) : (
               <Text style={styles.primaryText}>Sign in</Text>
             )}
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 8,
   },
-  primaryText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  primaryText: { color: "#0B0B0B", fontWeight: "700", fontSize: 16 },
   divider: { flexDirection: "row", alignItems: "center", marginVertical: 22, gap: 8 },
   line: { flex: 1, height: 1, backgroundColor: COLORS.border },
   dividerText: { color: COLORS.text3, fontSize: 13 },

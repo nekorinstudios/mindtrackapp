@@ -145,7 +145,7 @@ export default function Home() {
                       ]}
                       onPress={() => toggle(s)}
                     >
-                      <Text style={[styles.chipText, on && { color: "#fff" }]}>{s}</Text>
+                      <Text style={[styles.chipText, on && { color: "#0B0B0B" }]}>{s}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -161,7 +161,7 @@ export default function Home() {
           disabled={submitting}
         >
           {submitting ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color="#0B0B0B" />
           ) : (
             <Text style={styles.submitText}>Submit check-in</Text>
           )}
@@ -350,5 +350,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 24,
   },
-  submitText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  submitText: { color: "#0B0B0B", fontWeight: "700", fontSize: 16 },
 });

@@ -204,7 +204,7 @@ export default function Tasks() {
                     <Text
                       style={[
                         styles.pillText,
-                        newInterval === m && { color: "#fff" },
+                        newInterval === m && { color: "#0B0B0B" },
                       ]}
                     >
                       {m}m
@@ -220,7 +220,7 @@ export default function Tasks() {
               disabled={adding}
             >
               {adding ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color="#0B0B0B" />
               ) : (
                 <Text style={styles.addBtnText}>Add task</Text>
               )}
@@ -257,7 +257,7 @@ export default function Tasks() {
                     <Text
                       style={[
                         styles.trackText,
-                        playingId === t.track_id && { color: "#fff" },
+                        playingId === t.track_id && { color: "#0B0B0B" },
                       ]}
                       numberOfLines={1}
                     >
@@ -312,8 +312,8 @@ export default function Tasks() {
                       ]}
                       onPress={() => check(t, "done")}
                     >
-                      <Ionicons name="checkmark" size={14} color="#fff" />
-                      <Text style={[styles.miniText, { color: "#fff" }]}>Done</Text>
+                      <Ionicons name="checkmark" size={14} color="#0B0B0B" />
+                      <Text style={[styles.miniText, { color: "#0B0B0B" }]}>Done</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       testID={`task-interval-${t.task_id}`}
@@ -368,7 +368,7 @@ export default function Tasks() {
                   <Text
                     style={[
                       styles.pillText,
-                      intervalModalFor?.notify_interval_minutes === m && { color: "#fff" },
+                      intervalModalFor?.notify_interval_minutes === m && { color: "#0B0B0B" },
                     ]}
                   >
                     {m} min
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
-  addBtnText: { color: "#fff", fontWeight: "700" },
+  addBtnText: { color: "#0B0B0B", fontWeight: "700" },
   musicCard: {
     backgroundColor: COLORS.bg2,
     borderColor: COLORS.border,

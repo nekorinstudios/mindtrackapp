@@ -133,7 +133,7 @@ export default function Rewards() {
                 <Text style={styles.choiceLabel}>{c.label}</Text>
                 {on ? (
                   <View style={styles.activeTag}>
-                    <Ionicons name="checkmark" size={14} color="#fff" />
+                    <Ionicons name="checkmark" size={14} color="#0B0B0B" />
                     <Text style={styles.activeTagText}>Active</Text>
                   </View>
                 ) : null}
@@ -209,5 +209,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 2,
   },
-  activeTagText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  activeTagText: { color: "#0B0B0B", fontSize: 11, fontWeight: "800" },
 });

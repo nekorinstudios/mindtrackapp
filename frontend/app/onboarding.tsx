@@ -148,7 +148,7 @@ export default function Onboarding() {
                     on && { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
                   ]}
                 >
-                  {on ? <Text style={{ color: "#fff", fontWeight: "800" }}>✓</Text> : null}
+                  {on ? <Text style={{ color: "#0B0B0B", fontWeight: "800" }}>✓</Text> : null}
                 </View>
               </TouchableOpacity>
             );
@@ -161,7 +161,7 @@ export default function Onboarding() {
             onPress={() => save(selected)}
           >
             {busy ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color="#0B0B0B" />
             ) : (
               <Text style={styles.primaryText}>Continue</Text>
             )}
@@ -206,7 +206,7 @@ export default function Onboarding() {
                           })
                         }
                       >
-                        <Text style={[styles.pillText, sel && { color: "#fff" }]}>{v}</Text>
+                        <Text style={[styles.pillText, sel && { color: "#0B0B0B" }]}>{v}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -233,7 +233,7 @@ export default function Onboarding() {
           }}
         >
           {busy ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color="#0B0B0B" />
           ) : (
             <Text style={styles.primaryText}>See my results</Text>
           )}
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 16,
   },
-  primaryText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  primaryText: { color: "#0B0B0B", fontWeight: "700", fontSize: 16 },
   err: { color: "#B75D53", marginTop: 8 },
   h3: { fontSize: 18, fontWeight: "800", color: COLORS.text, marginBottom: 8 },
   qBlock: { marginBottom: 14 },

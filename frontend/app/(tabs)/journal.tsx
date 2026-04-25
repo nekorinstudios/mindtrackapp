@@ -140,7 +140,7 @@ export default function Journal() {
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color="#0B0B0B" />
               ) : (
                 <Text style={styles.saveText}>Save entry</Text>
               )}
@@ -329,7 +329,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
-  saveText: { color: "#fff", fontWeight: "700" },
+  saveText: { color: "#0B0B0B", fontWeight: "700" },
   entry: {
     backgroundColor: COLORS.bg2,
     borderColor: COLORS.border,

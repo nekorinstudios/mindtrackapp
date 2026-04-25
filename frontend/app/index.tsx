@@ -71,7 +71,7 @@ export default function Landing() {
 
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.bg },
-  bg: { flex: 1, backgroundColor: COLORS.bg3 },
+  bg: { flex: 1, backgroundColor: COLORS.bg },
   safe: { flex: 1 },
   content: { flex: 1, padding: 24, justifyContent: "space-between" },
   hero: { marginTop: 48 },
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
   },
-  primaryText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  primaryText: { color: "#0B0B0B", fontWeight: "700", fontSize: 16 },
   outline: {
     borderWidth: 2,
     borderColor: COLORS.brand,
