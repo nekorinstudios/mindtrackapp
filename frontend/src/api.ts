@@ -55,21 +55,21 @@ export function formatApiError(err: any): string {
 }
 
 export const COLORS = {
-  bg: "#FFFDF7",
+  bg: "#FFFFFF",
   bg2: "#FFFFFF",
-  bg3: "#FFF1DE",
-  text: "#1B2420",
-  text2: "#435048",
-  text3: "#8A988F",
-  brand: "#2BBF8A",
-  brand2: "#FF6B6B",
-  accent: "#FFB347",
-  border: "#F0E6DA",
+  bg3: "#FFF8D6",
+  text: "#0B0B0B",
+  text2: "#1F2937",
+  text3: "#5B6470",
+  brand: "#1D4ED8",
+  brand2: "#FACC15",
+  accent: "#FFD60A",
+  border: "#DDE6F2",
   e_green: "#3BD16F",
   e_yellow: "#FFD93D",
   e_orange: "#FF9D42",
   e_red: "#FF4E4E",
-  e_black: "#2A2A2A",
+  e_black: "#0B0B0B",
 };
 
 export function energyColor(pct: number) {
