@@ -135,6 +135,11 @@ class MedicineCreateIn(BaseModel):
     dosage: Optional[str] = None
     notes: Optional[str] = None
 
+class TestSubmitIn(BaseModel):
+    test_id: Literal["asrs", "raads14", "mdq", "gad7"]
+    answers: List[int]
+    extra: Optional[dict] = None  # for MDQ Q2/Q3
+
 
 # --- App ---
 app = FastAPI(title="MindTrack API")
@@ -823,6 +828,232 @@ async def get_all_medicine_logs(days: int = 30, user: dict = Depends(get_current
     async for d in cursor:
         if isinstance(d.get("taken_at"), datetime):
             d["taken_at"] = d["taken_at"].isoformat()
+        items.append(d)
+    return items
+
+
+# --- Mental health screening tests (MHA-style) ---
+TESTS = {
+    "asrs": {
+        "test_id": "asrs",
+        "title": "Adult ADHD Self-Report Scale (ASRS v1.1)",
+        "short": "ADHD",
+        "description": "Six-question screen developed by the WHO. Reflect on how you've felt and conducted yourself over the past 6 months.",
+        "scale": ["Never", "Rarely", "Sometimes", "Often", "Very Often"],
+        "type": "scaled",
+        "questions": [
+            {"text": "How often do you have trouble wrapping up the final details of a project, once the challenging parts have been done?", "threshold": 2},
+            {"text": "How often do you have difficulty getting things in order when you have to do a task that requires organization?", "threshold": 2},
+            {"text": "How often do you have problems remembering appointments or obligations?", "threshold": 2},
+            {"text": "When you have a task that requires a lot of thought, how often do you avoid or delay getting started?", "threshold": 3},
+            {"text": "How often do you fidget or squirm with your hands or feet when you have to sit down for a long time?", "threshold": 3},
+            {"text": "How often do you feel overly active and compelled to do things, like you were driven by a motor?", "threshold": 3},
+        ],
+    },
+    "gad7": {
+        "test_id": "gad7",
+        "title": "Generalized Anxiety Disorder (GAD-7)",
+        "short": "Anxiety",
+        "description": "Over the last 2 weeks, how often have you been bothered by the following problems?",
+        "scale": ["Not at all", "Several days", "More than half the days", "Nearly every day"],
+        "type": "scaled",
+        "questions": [
+            {"text": "Feeling nervous, anxious, or on edge"},
+            {"text": "Not being able to stop or control worrying"},
+            {"text": "Worrying too much about different things"},
+            {"text": "Trouble relaxing"},
+            {"text": "Being so restless that it is hard to sit still"},
+            {"text": "Becoming easily annoyed or irritable"},
+            {"text": "Feeling afraid, as if something awful might happen"},
+        ],
+    },
+    "mdq": {
+        "test_id": "mdq",
+        "title": "Mood Disorder Questionnaire (MDQ)",
+        "short": "Bipolar",
+        "description": "Has there ever been a period of time when you were not your usual self and...",
+        "scale": ["No", "Yes"],
+        "type": "mdq",
+        "questions": [
+            {"text": "...you felt so good or so hyper that other people thought you were not your normal self, or you were so hyper that you got into trouble?"},
+            {"text": "...you were so irritable that you shouted at people or started fights or arguments?"},
+            {"text": "...you felt much more self-confident than usual?"},
+            {"text": "...you got much less sleep than usual and found that you didn't really miss it?"},
+            {"text": "...you were much more talkative or spoke much faster than usual?"},
+            {"text": "...thoughts raced through your head or you couldn't slow your mind down?"},
+            {"text": "...you were so easily distracted by things around you that you had trouble concentrating or staying on track?"},
+            {"text": "...you had much more energy than usual?"},
+            {"text": "...you were much more active or did many more things than usual?"},
+            {"text": "...you were much more social or outgoing than usual; for example, you telephoned friends in the middle of the night?"},
+            {"text": "...you were much more interested in sex than usual?"},
+            {"text": "...you did things that were unusual for you or that other people might have thought were excessive, foolish, or risky?"},
+            {"text": "...spending money got you or your family into trouble?"},
+        ],
+        "extra_q2": "Have several of these ever happened during the same period of time?",
+        "extra_q3": "How much of a problem did any of these cause you?",
+        "extra_q3_options": ["No problem", "Minor problem", "Moderate problem", "Serious problem"],
+    },
+    "raads14": {
+        "test_id": "raads14",
+        "title": "RAADS-14 Autism Screen",
+        "short": "AuDHD / Autism",
+        "description": "Indicate how each statement applies to you and your behavior. (Reverse-scored items are accounted for automatically.)",
+        "scale": [
+            "True only when I was younger than 16",
+            "True now and when I was younger than 16",
+            "True now only",
+            "Never true",
+        ],
+        "type": "raads",
+        "questions": [
+            {"text": "It is difficult for me to understand how other people are feeling when we are talking.", "reverse": False},
+            {"text": "Some ordinary textures that do not bother others feel very offensive when they touch my skin.", "reverse": False},
+            {"text": "It is very difficult for me to work and function in groups.", "reverse": False},
+            {"text": "It is difficult to figure out what other people expect of me.", "reverse": False},
+            {"text": "I often don't know how to act in social situations.", "reverse": False},
+            {"text": "I can chat and make small talk with people.", "reverse": True},
+            {"text": "When I feel overwhelmed by my senses, I have to isolate myself to shut them down.", "reverse": False},
+            {"text": "How to make friends and socialize is a mystery to me.", "reverse": False},
+            {"text": "When talking to someone, I have a hard time telling when it is my turn to talk or to listen.", "reverse": False},
+            {"text": "I am considered a compassionate type of person.", "reverse": True},
+            {"text": "I get extremely upset when the way I like to do things is suddenly changed.", "reverse": False},
+            {"text": "I have always had difficulty getting others to understand me.", "reverse": False},
+            {"text": "It is difficult for me to understand what other people are feeling when we are talking.", "reverse": False},
+            {"text": "I like to talk things over with my friends.", "reverse": True},
+        ],
+    },
+}
+
+
+def _score_test(test_id: str, answers: List[int], extra: Optional[dict] = None) -> dict:
+    t = TESTS.get(test_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown test")
+    qcount = len(t["questions"])
+    if len(answers) != qcount:
+        raise HTTPException(status_code=400, detail=f"Expected {qcount} answers, got {len(answers)}")
+
+    if test_id == "asrs":
+        positives = 0
+        for i, a in enumerate(answers):
+            thr = t["questions"][i].get("threshold", 2)
+            if a >= thr:
+                positives += 1
+        outcome = (
+            "Highly consistent with adult ADHD — recommend professional evaluation."
+            if positives >= 4
+            else "Few markers detected — ADHD is not strongly indicated by this short screen."
+        )
+        return {"score": positives, "max": 6, "category": "Positive markers", "interpretation": outcome}
+
+    if test_id == "gad7":
+        total = sum(answers)
+        if total <= 4:
+            cat = "Minimal anxiety"
+        elif total <= 9:
+            cat = "Mild anxiety"
+        elif total <= 14:
+            cat = "Moderate anxiety"
+        else:
+            cat = "Severe anxiety"
+        return {
+            "score": total,
+            "max": 21,
+            "category": cat,
+            "interpretation": f"GAD-7 score: {total}/21 — {cat}.",
+        }
+
+    if test_id == "mdq":
+        yes_count = sum(1 for a in answers if a == 1)
+        q2 = bool((extra or {}).get("q2", False))
+        q3 = int((extra or {}).get("q3", 0))  # 0..3
+        positive = yes_count >= 7 and q2 and q3 >= 2
+        cat = "Positive screen for bipolar spectrum" if positive else "Below screening threshold"
+        return {
+            "score": yes_count,
+            "max": 13,
+            "category": cat,
+            "interpretation": (
+                f"{yes_count}/13 yes responses; same-period: {'yes' if q2 else 'no'}; impact: {q3}/3. "
+                + ("Positive screen — please discuss with a mental-health professional." if positive
+                   else "Not a positive screen by MDQ criteria.")
+            ),
+        }
+
+    if test_id == "raads14":
+        # Each scaled answer maps to a value depending on reverse flag
+        # Forward: True now+childhood=3, True now=2, True younger=1, Never=0
+        # Reverse: same options, but inverted
+        total = 0
+        forward_map = [1, 3, 2, 0]
+        reverse_map = [2, 0, 1, 3]
+        for i, a in enumerate(answers):
+            rev = t["questions"][i].get("reverse", False)
+            v = (reverse_map if rev else forward_map)[a]
+            total += v
+        cat = "Likely autistic traits" if total >= 14 else "Below RAADS-14 threshold"
+        return {
+            "score": total,
+            "max": 42,
+            "category": cat,
+            "interpretation": (
+                f"RAADS-14 total: {total}/42. "
+                + ("Score is at or above the 14-point cutoff — consider a follow-up assessment." if total >= 14
+                   else "Below cutoff for autism spectrum traits.")
+            ),
+        }
+
+    return {"score": 0, "max": 0, "category": "", "interpretation": ""}
+
+
+@api.get("/tests/catalog")
+async def tests_catalog():
+    # Strip internal fields like "threshold"/"reverse"
+    out = {}
+    for k, t in TESTS.items():
+        qs = []
+        for q in t["questions"]:
+            qs.append({"text": q["text"]})
+        copy = {k2: v for k2, v in t.items() if k2 != "questions"}
+        copy["questions"] = qs
+        out[k] = copy
+    return out
+
+
+@api.post("/tests/submit")
+async def submit_test(body: TestSubmitIn, user: dict = Depends(get_current_user)):
+    res = _score_test(body.test_id, body.answers, body.extra)
+    sub_id = f"sub_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    await db.test_submissions.insert_one(
+        {
+            "submission_id": sub_id,
+            "user_id": user["user_id"],
+            "test_id": body.test_id,
+            "answers": body.answers,
+            "extra": body.extra or {},
+            "score": res["score"],
+            "max_score": res["max"],
+            "category": res["category"],
+            "interpretation": res["interpretation"],
+            "created_at": now,
+        }
+    )
+    return {
+        "submission_id": sub_id,
+        "test_id": body.test_id,
+        **res,
+        "created_at": now.isoformat(),
+    }
+
+
+@api.get("/tests/results")
+async def tests_results(user: dict = Depends(get_current_user)):
+    cursor = db.test_submissions.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1)
+    items = []
+    async for d in cursor:
+        if isinstance(d.get("created_at"), datetime):
+            d["created_at"] = d["created_at"].isoformat()
         items.append(d)
     return items
 

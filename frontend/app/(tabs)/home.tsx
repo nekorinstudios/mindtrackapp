@@ -100,13 +100,22 @@ export default function Home() {
             <Text style={styles.hi}>Hi, {user?.name || user?.username}</Text>
             <Text style={styles.today}>{new Date().toDateString()}</Text>
           </View>
-          <TouchableOpacity
-            testID="home-logout-btn"
-            onPress={logout}
-            style={styles.iconBtn}
-          >
-            <Ionicons name="log-out-outline" size={22} color={COLORS.text2} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TouchableOpacity
+              testID="home-tests-btn"
+              onPress={() => router.push("/tests")}
+              style={styles.iconBtn}
+            >
+              <Ionicons name="clipboard-outline" size={22} color={COLORS.text2} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="home-logout-btn"
+              onPress={logout}
+              style={styles.iconBtn}
+            >
+              <Ionicons name="log-out-outline" size={22} color={COLORS.text2} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <EnergyMeter

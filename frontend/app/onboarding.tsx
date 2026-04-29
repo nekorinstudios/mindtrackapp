@@ -103,11 +103,12 @@ export default function Onboarding() {
           <TouchableOpacity
             testID="onboarding-test-btn"
             style={[styles.bigCard, { backgroundColor: COLORS.bg3 }]}
-            onPress={() => setMode("test")}
+            onPress={() => router.push("/tests")}
           >
-            <Text style={styles.cardTitle}>Take a quick test</Text>
+            <Text style={styles.cardTitle}>Take a screening test</Text>
             <Text style={styles.cardSub}>
-              15 short questions. We'll suggest what to track. Not a diagnosis.
+              Validated MHA screens for ADHD (ASRS), Anxiety (GAD-7), Bipolar (MDQ),
+              Autism/AuDHD (RAADS-14). Educational, not a diagnosis.
             </Text>
           </TouchableOpacity>
 
