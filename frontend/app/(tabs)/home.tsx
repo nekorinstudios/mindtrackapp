@@ -18,6 +18,49 @@ import { useRouter } from "expo-router";
 import { api, COLORS, energyColor, energyLabel, formatApiError } from "../../src/api";
 import { useAuth } from "../../src/auth";
 
+// Map each "feeling" symptom to an emoji that conveys it.
+const SYMPTOM_EMOJI: Record<string, string> = {
+  // ADHD feelings
+  "I can't stay on task": "🌀",
+  "Distractions keep pulling me away": "🦋",
+  "I feel restless and on edge": "⚡",
+  "My memory keeps slipping": "🫧",
+  "I act before I think": "💥",
+  "Starting feels heavy": "🪨",
+  "I can't finish what I start": "🧶",
+  "I keep fidgeting": "👣",
+  "Everything feels scattered": "🍃",
+  "Time slips away from me": "⏳",
+  "Juggling tasks feels overwhelming": "🤹",
+  "Planning ahead feels impossible": "🌫️",
+  "Little things frustrate me fast": "😤",
+  "My moods shift suddenly": "🎭",
+  "My temper flares quickly": "🔥",
+  "Stress is overwhelming me": "🌊",
+  // Bipolar
+  "Elevated mood": "🚀",
+  "Racing thoughts": "💨",
+  "Low mood": "🌧️",
+  "Irritability": "😠",
+  "Hopelessness": "🕳️",
+  "Excess energy": "⚡",
+  "Little need for sleep": "🌙",
+  "Anxiety": "🫨",
+  // Autism
+  "Sensory overload": "🔊",
+  "Social fatigue": "🫥",
+  "Repetitive behaviors": "🔁",
+  "Strong focus on interests": "🔬",
+  "Difficulty with change": "🌀",
+  "Eye contact discomfort": "👀",
+  "Sound sensitivity": "🎧",
+  "Stimming": "🪞",
+};
+
+function emojiFor(s: string) {
+  return SYMPTOM_EMOJI[s] || "💭";
+}
+
 type SymCatalog = Record<string, string[]>;
 
 export default function Home() {
@@ -168,22 +211,24 @@ export default function Home() {
                   />
                 </TouchableOpacity>
                 {open && (
-                  <View style={styles.chips}>
+                  <View style={styles.feelGrid}>
                     {items.map((s) => {
                       const on = !!selected[s];
                       return (
                         <TouchableOpacity
                           key={s}
                           testID={`symptom-${s.replace(/\s+/g, "-").toLowerCase()}`}
-                          style={[
-                            styles.chip,
-                            on && { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
-                          ]}
+                          style={[styles.feelCard, on && styles.feelCardOn]}
+                          activeOpacity={0.85}
                           onPress={() => toggle(s)}
                         >
-                          <Text style={[styles.chipText, on && { color: "#0B0B0B" }]}>
-                            {s}
-                          </Text>
+                          <Text style={styles.feelEmoji}>{emojiFor(s)}</Text>
+                          <Text style={[styles.feelText, on && styles.feelTextOn]}>{s}</Text>
+                          {on ? (
+                            <View style={styles.feelBadge}>
+                              <Ionicons name="checkmark" size={12} color="#0B0B0B" />
+                            </View>
+                          ) : null}
                         </TouchableOpacity>
                       );
                     })}
@@ -407,6 +452,52 @@ const styles = StyleSheet.create({
     borderRadius: 99,
   },
   chipText: { color: COLORS.text, fontWeight: "600" },
+
+  feelGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 10,
+    paddingBottom: 14,
+    gap: 8,
+  },
+  feelCard: {
+    width: "47%",
+    minHeight: 96,
+    backgroundColor: COLORS.bg,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+  },
+  feelCardOn: {
+    backgroundColor: COLORS.brand,
+    borderColor: COLORS.brand,
+    transform: [{ scale: 1.02 }],
+  },
+  feelEmoji: { fontSize: 28, marginBottom: 6 },
+  feelText: {
+    color: COLORS.text,
+    fontWeight: "600",
+    fontSize: 13,
+    lineHeight: 17,
+  },
+  feelTextOn: {
+    color: "#0B0B0B",
+    fontWeight: "800",
+  },
+  feelBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   submit: {
     backgroundColor: COLORS.brand,
