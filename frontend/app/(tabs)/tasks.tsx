@@ -35,6 +35,14 @@ type Track = {
   mime: string;
 };
 
+type Medicine = {
+  med_id: string;
+  name: string;
+  dosage?: string | null;
+  notes?: string | null;
+  last_taken?: string | null;
+};
+
 const INTERVALS = [5, 10, 15, 20, 25, 30];
 
 export default function Tasks() {
@@ -53,11 +61,21 @@ export default function Tasks() {
 
   const [intervalModalFor, setIntervalModalFor] = useState<Task | null>(null);
 
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [medName, setMedName] = useState("");
+  const [medDose, setMedDose] = useState("");
+  const [medAdding, setMedAdding] = useState(false);
+
   const load = useCallback(async () => {
     try {
-      const [t, m] = await Promise.all([api.get<Task[]>("/tasks"), api.get<Track[]>("/music")]);
+      const [t, m, meds] = await Promise.all([
+        api.get<Task[]>("/tasks"),
+        api.get<Track[]>("/music"),
+        api.get<Medicine[]>("/medicines"),
+      ]);
       setTasks(t.data);
       setTracks(m.data);
+      setMedicines(meds.data);
     } catch (e: any) {
       if (e?.response?.status !== 401) console.log("tasks err", e?.message);
     } finally {
@@ -157,6 +175,37 @@ export default function Tasks() {
       const newIds = await scheduleTaskInterval(taskId, t.title, minutes);
       setNotifMap((m) => ({ ...m, [taskId]: newIds }));
     }
+  };
+
+  const addMedicine = async () => {
+    if (!medName.trim()) return;
+    setMedAdding(true);
+    try {
+      await api.post("/medicines", { name: medName.trim(), dosage: medDose.trim() || undefined });
+      setMedName("");
+      setMedDose("");
+      await load();
+    } catch (e: any) {
+      Alert.alert("Could not add", formatApiError(e));
+    } finally {
+      setMedAdding(false);
+    }
+  };
+
+  const logMedicine = async (m: Medicine) => {
+    try {
+      await api.post(`/medicines/${m.med_id}/log`, {});
+      await load();
+    } catch (e: any) {
+      Alert.alert("Could not log", formatApiError(e));
+    }
+  };
+
+  const deleteMedicine = async (m: Medicine) => {
+    try {
+      await api.delete(`/medicines/${m.med_id}`);
+      await load();
+    } catch {}
   };
 
   if (loading) {
@@ -277,6 +326,84 @@ export default function Tasks() {
               <Text style={{ color: COLORS.brand, fontWeight: "700" }}>Upload music (admin)</Text>
             </TouchableOpacity>
           )}
+
+          <View style={styles.medCard}>
+            <Text style={styles.medTitle}>Medicines</Text>
+            <Text style={styles.sub}>
+              Log each dose with a timestamp.
+            </Text>
+            <View style={styles.medAddRow}>
+              <TextInput
+                testID="medicine-name-input"
+                style={[styles.input, { flex: 2 }]}
+                value={medName}
+                onChangeText={setMedName}
+                placeholder="Medicine name"
+                placeholderTextColor={COLORS.text3}
+              />
+              <TextInput
+                testID="medicine-dose-input"
+                style={[styles.input, { flex: 1 }]}
+                value={medDose}
+                onChangeText={setMedDose}
+                placeholder="Dosage"
+                placeholderTextColor={COLORS.text3}
+              />
+            </View>
+            <TouchableOpacity
+              testID="medicine-add-btn"
+              style={styles.addBtn}
+              onPress={addMedicine}
+              disabled={medAdding}
+            >
+              {medAdding ? (
+                <ActivityIndicator color="#0B0B0B" />
+              ) : (
+                <Text style={styles.addBtnText}>Add medicine</Text>
+              )}
+            </TouchableOpacity>
+            {medicines.length === 0 ? (
+              <Text style={[styles.sub, { marginTop: 10 }]}>
+                No medicines yet. Add one to start logging doses.
+              </Text>
+            ) : (
+              medicines.map((m) => (
+                <View key={m.med_id} style={styles.medRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.medName}>
+                      {m.name}
+                      {m.dosage ? <Text style={styles.medDose}>  ·  {m.dosage}</Text> : null}
+                    </Text>
+                    <Text style={styles.medMeta}>
+                      {m.last_taken
+                        ? `Last taken: ${new Date(m.last_taken).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}`
+                        : "Not logged yet"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    testID={`medicine-take-${m.med_id}`}
+                    style={styles.medTakeBtn}
+                    onPress={() => logMedicine(m)}
+                  >
+                    <Ionicons name="time-outline" size={14} color="#0B0B0B" />
+                    <Text style={styles.medTakeText}>Took it now</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID={`medicine-delete-${m.med_id}`}
+                    onPress={() => deleteMedicine(m)}
+                    style={{ paddingLeft: 8 }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={COLORS.e_red} />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
 
           <Text style={[styles.h2, { marginTop: 16 }]}>Your tasks</Text>
           {tasks.length === 0 ? (
@@ -466,6 +593,37 @@ const styles = StyleSheet.create({
   },
   taskTitle: { fontSize: 16, fontWeight: "800", color: COLORS.text },
   taskMeta: { color: COLORS.text2, marginTop: 4, fontSize: 13 },
+  medCard: {
+    backgroundColor: COLORS.bg2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
+    marginTop: 16,
+  },
+  medTitle: { fontSize: 16, fontWeight: "800", color: COLORS.text },
+  medAddRow: { flexDirection: "row", gap: 8, marginTop: 10 },
+  medRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    marginTop: 12,
+  },
+  medName: { color: COLORS.text, fontWeight: "800", fontSize: 15 },
+  medDose: { color: COLORS.text2, fontWeight: "600", fontSize: 13 },
+  medMeta: { color: COLORS.text3, marginTop: 2, fontSize: 12 },
+  medTakeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: COLORS.brand,
+  },
+  medTakeText: { color: "#0B0B0B", fontWeight: "800", fontSize: 13 },
   miniBtn: {
     flexDirection: "row",
     alignItems: "center",

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { api, COLORS, energyColor, energyLabel, formatApiError } from "../../src/api";
 import { useAuth } from "../../src/auth";
@@ -29,6 +30,7 @@ export default function Home() {
   const [energy, setEnergy] = useState<number>(70);
   const [lastEnergy, setLastEnergy] = useState<{ percent: number; at: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -37,6 +39,8 @@ export default function Home() {
         api.get("/energy/logs?days=1"),
       ]);
       setCatalog(catRes.data);
+      const firstKey = Object.keys(catRes.data)[0];
+      if (firstKey) setOpenGroup((g) => g ?? firstKey);
       if (eRes.data?.length) {
         setEnergy(eRes.data[0].percent);
         setLastEnergy({ percent: eRes.data[0].percent, at: eRes.data[0].created_at });
@@ -129,29 +133,56 @@ export default function Home() {
         {Object.keys(catalog).length === 0 ? (
           <Text style={styles.sectionSub}>No disorders selected.</Text>
         ) : (
-          Object.entries(catalog).map(([disorder, items]) => (
-            <View key={disorder} style={styles.group}>
-              <Text style={styles.groupTitle}>{disorder}</Text>
-              <View style={styles.chips}>
-                {items.map((s) => {
-                  const on = !!selected[s];
-                  return (
-                    <TouchableOpacity
-                      key={s}
-                      testID={`symptom-${s.replace(/\s+/g, "-").toLowerCase()}`}
-                      style={[
-                        styles.chip,
-                        on && { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
-                      ]}
-                      onPress={() => toggle(s)}
-                    >
-                      <Text style={[styles.chipText, on && { color: "#0B0B0B" }]}>{s}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+          Object.entries(catalog).map(([disorder, items]) => {
+            const open = openGroup === disorder;
+            const checkedCount = items.filter((s) => selected[s]).length;
+            return (
+              <View key={disorder} style={styles.group}>
+                <TouchableOpacity
+                  testID={`accordion-${disorder.toLowerCase()}`}
+                  onPress={() => setOpenGroup(open ? null : disorder)}
+                  style={styles.accordionHeader}
+                  activeOpacity={0.85}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.accordionTitle}>{disorder}</Text>
+                    <Text style={styles.accordionMeta}>
+                      {checkedCount > 0
+                        ? `${checkedCount} selected`
+                        : `${items.length} symptoms`}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={open ? "chevron-up" : "chevron-down"}
+                    size={22}
+                    color={COLORS.text}
+                  />
+                </TouchableOpacity>
+                {open && (
+                  <View style={styles.chips}>
+                    {items.map((s) => {
+                      const on = !!selected[s];
+                      return (
+                        <TouchableOpacity
+                          key={s}
+                          testID={`symptom-${s.replace(/\s+/g, "-").toLowerCase()}`}
+                          style={[
+                            styles.chip,
+                            on && { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+                          ]}
+                          onPress={() => toggle(s)}
+                        >
+                          <Text style={[styles.chipText, on && { color: "#0B0B0B" }]}>
+                            {s}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
-            </View>
-          ))
+            );
+          })
         )}
 
         <TouchableOpacity
@@ -232,17 +263,24 @@ function EnergyMeter({
           style={styles.meterBar}
           {...pan.panHandlers}
         >
-          <View style={[styles.bandBlack, { height: "30%" }]} />
-          <View style={[styles.bandRed, { height: "10%" }]} />
-          <View style={[styles.bandOrange, { height: "10%" }]} />
-          <View style={[styles.bandYellow, { height: "39%" }]} />
-          <View style={[styles.bandGreen, { height: "11%" }]} />
+          <Svg width="100%" height="100%" style={{ position: "absolute", top: 0, left: 0 }}>
+            <Defs>
+              <LinearGradient id="meterGrad" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor="#22C55E" />
+                <Stop offset="0.30" stopColor="#FFD93D" />
+                <Stop offset="0.50" stopColor="#FF9D42" />
+                <Stop offset="0.70" stopColor="#EF4444" />
+                <Stop offset="1" stopColor="#EF4444" />
+              </LinearGradient>
+            </Defs>
+            <Rect x="0" y="0" width="100%" height="100%" fill="url(#meterGrad)" />
+          </Svg>
 
           <View
             pointerEvents="none"
             style={[styles.knob, { bottom: `${value}%`, borderColor: color }]}
           >
-            <Text style={{ fontWeight: "800", color: COLORS.text }}>{value}%</Text>
+            <Text style={{ fontWeight: "800", color: COLORS.e_black }}>{value}%</Text>
           </View>
         </View>
 
@@ -299,11 +337,6 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     position: "relative",
   },
-  bandBlack: { backgroundColor: COLORS.e_black, width: "100%", position: "absolute", bottom: 0 },
-  bandRed: { backgroundColor: COLORS.e_red, width: "100%", position: "absolute", bottom: "30%" },
-  bandOrange: { backgroundColor: COLORS.e_orange, width: "100%", position: "absolute", bottom: "40%" },
-  bandYellow: { backgroundColor: COLORS.e_yellow, width: "100%", position: "absolute", bottom: "50%" },
-  bandGreen: { backgroundColor: COLORS.e_green, width: "100%", position: "absolute", bottom: "89%" },
   knob: {
     position: "absolute",
     alignSelf: "center",
@@ -330,15 +363,38 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: "800", color: COLORS.text },
   sectionSub: { color: COLORS.text2, marginTop: 4 },
 
-  group: { marginTop: 14 },
-  groupTitle: { fontSize: 14, fontWeight: "800", color: COLORS.text2, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  group: {
+    marginTop: 12,
+    backgroundColor: COLORS.bg2,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  accordionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  accordionTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
+  accordionMeta: {
+    color: COLORS.text2,
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingBottom: 14 },
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.bg2,
+    backgroundColor: COLORS.bg,
     borderRadius: 99,
   },
   chipText: { color: COLORS.text, fontWeight: "600" },

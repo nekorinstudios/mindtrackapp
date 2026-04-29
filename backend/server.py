@@ -130,6 +130,11 @@ class SendReportIn(BaseModel):
 class GoogleAuthIn(BaseModel):
     session_id: str
 
+class MedicineCreateIn(BaseModel):
+    name: str
+    dosage: Optional[str] = None
+    notes: Optional[str] = None
+
 
 # --- App ---
 app = FastAPI(title="MindTrack API")
@@ -726,6 +731,88 @@ async def root():
     return {"message": "MindTrack API"}
 
 
+# --- Medicines ---
+@api.post("/medicines")
+async def create_medicine(body: MedicineCreateIn, user: dict = Depends(get_current_user)):
+    med_id = f"med_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "med_id": med_id,
+        "user_id": user["user_id"],
+        "name": body.name.strip(),
+        "dosage": (body.dosage or "").strip() or None,
+        "notes": (body.notes or "").strip() or None,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.medicines.insert_one(doc)
+    doc.pop("_id", None)
+    if isinstance(doc.get("created_at"), datetime):
+        doc["created_at"] = doc["created_at"].isoformat()
+    return doc
+
+
+@api.get("/medicines")
+async def list_medicines(user: dict = Depends(get_current_user)):
+    cursor = db.medicines.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1)
+    items = []
+    async for d in cursor:
+        if isinstance(d.get("created_at"), datetime):
+            d["created_at"] = d["created_at"].isoformat()
+        last = await db.medicine_logs.find_one(
+            {"user_id": user["user_id"], "med_id": d["med_id"]},
+            {"_id": 0},
+            sort=[("taken_at", -1)],
+        )
+        if last and isinstance(last.get("taken_at"), datetime):
+            last["taken_at"] = last["taken_at"].isoformat()
+        d["last_taken"] = last.get("taken_at") if last else None
+        items.append(d)
+    return items
+
+
+@api.delete("/medicines/{med_id}")
+async def delete_medicine(med_id: str, user: dict = Depends(get_current_user)):
+    r = await db.medicines.delete_one({"med_id": med_id, "user_id": user["user_id"]})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    await db.medicine_logs.delete_many({"med_id": med_id, "user_id": user["user_id"]})
+    return {"ok": True}
+
+
+@api.post("/medicines/{med_id}/log")
+async def log_medicine(med_id: str, user: dict = Depends(get_current_user)):
+    med = await db.medicines.find_one({"med_id": med_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not med:
+        raise HTTPException(status_code=404, detail="Medicine not found")
+    log_id = f"mlog_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    await db.medicine_logs.insert_one(
+        {
+            "log_id": log_id,
+            "user_id": user["user_id"],
+            "med_id": med_id,
+            "name": med["name"],
+            "taken_at": now,
+        }
+    )
+    return {"ok": True, "log_id": log_id, "taken_at": now.isoformat()}
+
+
+@api.get("/medicines/{med_id}/logs")
+async def get_medicine_logs(med_id: str, days: int = 30, user: dict = Depends(get_current_user)):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    cursor = db.medicine_logs.find(
+        {"user_id": user["user_id"], "med_id": med_id, "taken_at": {"$gte": since}},
+        {"_id": 0},
+    ).sort("taken_at", -1)
+    items = []
+    async for d in cursor:
+        if isinstance(d.get("taken_at"), datetime):
+            d["taken_at"] = d["taken_at"].isoformat()
+        items.append(d)
+    return items
+
+
+
 # --- Startup ---
 @app.on_event("startup")
 async def startup():
@@ -737,6 +824,8 @@ async def startup():
     await db.tasks.create_index([("user_id", 1), ("created_at", -1)])
     await db.journal.create_index([("user_id", 1), ("timestamp", -1)])
     await db.music.create_index("track_id", unique=True)
+    await db.medicines.create_index([("user_id", 1), ("created_at", -1)])
+    await db.medicine_logs.create_index([("user_id", 1), ("med_id", 1), ("taken_at", -1)])
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@mindtrack.app")

@@ -55,35 +55,52 @@ export function formatApiError(err: any): string {
 }
 
 export const COLORS = {
-  bg: "#1E40AF",
-  bg2: "#1E3A8A",
+  bg: "#4F8FF7",
+  bg2: "#3B7DE8",
   bg3: "#FCD34D",
   text: "#FFFFFF",
-  text2: "#DBEAFE",
-  text3: "#93C5FD",
+  text2: "#E5EFFE",
+  text3: "#BFD7FB",
   brand: "#FACC15",
-  brand2: "#3B82F6",
+  brand2: "#60A5FA",
   accent: "#FCD34D",
-  border: "#2952C7",
-  e_green: "#3BD16F",
+  border: "#80AEF8",
+  e_green: "#22C55E",
   e_yellow: "#FFD93D",
   e_orange: "#FF9D42",
-  e_red: "#FF4E4E",
+  e_red: "#EF4444",
   e_black: "#0B0B0B",
 };
 
 export function energyColor(pct: number) {
-  if (pct >= 90) return COLORS.e_green;
-  if (pct >= 51) return COLORS.e_yellow;
-  if (pct >= 41) return COLORS.e_orange;
-  if (pct >= 31) return COLORS.e_red;
-  return COLORS.e_black;
+  // Smooth gradient: 100=green, ~70=yellow, ~50=orange, 30 and below=red
+  // Stops: 30:red, 50:orange, 70:yellow, 100:green
+  const stops: { p: number; c: [number, number, number] }[] = [
+    { p: 0, c: [239, 68, 68] },
+    { p: 30, c: [239, 68, 68] },
+    { p: 50, c: [255, 157, 66] },
+    { p: 70, c: [255, 217, 61] },
+    { p: 100, c: [34, 197, 94] },
+  ];
+  const v = Math.max(0, Math.min(100, pct));
+  for (let i = 1; i < stops.length; i++) {
+    const a = stops[i - 1];
+    const b = stops[i];
+    if (v <= b.p) {
+      const t = (v - a.p) / Math.max(1, b.p - a.p);
+      const r = Math.round(a.c[0] + (b.c[0] - a.c[0]) * t);
+      const g = Math.round(a.c[1] + (b.c[1] - a.c[1]) * t);
+      const bl = Math.round(a.c[2] + (b.c[2] - a.c[2]) * t);
+      return `rgb(${r},${g},${bl})`;
+    }
+  }
+  return "rgb(34,197,94)";
 }
 
 export function energyLabel(pct: number) {
-  if (pct >= 90) return "Excellent";
-  if (pct >= 51) return "Good";
-  if (pct >= 41) return "Fair";
-  if (pct >= 31) return "Low";
+  if (pct >= 85) return "Excellent";
+  if (pct >= 65) return "Good";
+  if (pct >= 45) return "Fair";
+  if (pct > 30) return "Low";
   return "Depleted";
 }
