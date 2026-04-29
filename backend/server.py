@@ -812,6 +812,21 @@ async def get_medicine_logs(med_id: str, days: int = 30, user: dict = Depends(ge
     return items
 
 
+@api.get("/medicine-logs")
+async def get_all_medicine_logs(days: int = 30, user: dict = Depends(get_current_user)):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    cursor = db.medicine_logs.find(
+        {"user_id": user["user_id"], "taken_at": {"$gte": since}},
+        {"_id": 0},
+    ).sort("taken_at", -1)
+    items = []
+    async for d in cursor:
+        if isinstance(d.get("taken_at"), datetime):
+            d["taken_at"] = d["taken_at"].isoformat()
+        items.append(d)
+    return items
+
+
 
 # --- Startup ---
 @app.on_event("startup")

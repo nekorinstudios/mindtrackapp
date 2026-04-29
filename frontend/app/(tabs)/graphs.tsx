@@ -13,20 +13,24 @@ import { api, COLORS, energyColor } from "../../src/api";
 
 type EnergyLog = { percent: number; created_at: string };
 type SymLog = { symptoms: string[]; created_at: string };
+type MedLog = { name: string; taken_at: string };
 
 export default function Graphs() {
   const [energy, setEnergy] = useState<EnergyLog[]>([]);
   const [symptoms, setSymptoms] = useState<SymLog[]>([]);
+  const [meds, setMeds] = useState<MedLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const [e, s] = await Promise.all([
+      const [e, s, m] = await Promise.all([
         api.get<EnergyLog[]>("/energy/logs?days=30"),
         api.get<SymLog[]>("/symptoms/logs?days=30"),
+        api.get<MedLog[]>("/medicine-logs?days=30"),
       ]);
       setEnergy(e.data.reverse()); // oldest first
       setSymptoms(s.data.reverse());
+      setMeds(m.data.reverse());
     } catch {}
     setLoading(false);
   }, []);
@@ -59,6 +63,26 @@ export default function Graphs() {
     }
     return Object.entries(map);
   }, [symptoms]);
+
+  const medsByDay = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {};
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const k = d.toISOString().slice(0, 10);
+      map[k] = {};
+    }
+    for (const l of meds) {
+      const k = l.taken_at.slice(0, 10);
+      if (k in map) {
+        map[k][l.name] = (map[k][l.name] || 0) + 1;
+      }
+    }
+    const names = Array.from(new Set(meds.map((m) => m.name)));
+    return { days: Object.entries(map), names };
+  }, [meds]);
+
+  const medTotal = meds.length;
 
   if (loading) {
     return (
@@ -167,6 +191,79 @@ export default function Graphs() {
                 );
               })}
             </Svg>
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Medicine doses (14 days)</Text>
+          <Text style={[styles.empty, { marginBottom: 6, color: COLORS.text2 }]}>
+            {medTotal === 0
+              ? "No doses logged yet."
+              : `${medTotal} dose${medTotal === 1 ? "" : "s"} in the last 30 days`}
+          </Text>
+          {medTotal === 0 ? null : (
+            <View>
+              <Svg width={w} height={chartH + 20}>
+                {(() => {
+                  const days = medsByDay.days;
+                  const names = medsByDay.names;
+                  const palette = [
+                    COLORS.brand,
+                    "#60A5FA",
+                    "#F472B6",
+                    "#34D399",
+                    "#A78BFA",
+                    "#FB923C",
+                  ];
+                  const totals = days.map(([, m]) =>
+                    Object.values(m).reduce((a, b) => a + b, 0)
+                  );
+                  const maxV = Math.max(1, ...totals);
+                  const dayW = (w - 20) / days.length - 4;
+                  const out: any[] = [];
+                  days.forEach(([k, m], i) => {
+                    const x = 10 + i * (dayW + 4);
+                    let yAcc = chartH;
+                    names.forEach((n, ni) => {
+                      const v = m[n] || 0;
+                      if (v === 0) return;
+                      const segH = (v / maxV) * chartH;
+                      yAcc -= segH;
+                      out.push(
+                        <Rect
+                          key={`${k}-${n}`}
+                          x={x}
+                          y={yAcc}
+                          width={dayW}
+                          height={segH}
+                          rx={3}
+                          fill={palette[ni % palette.length]}
+                        />
+                      );
+                    });
+                  });
+                  return out;
+                })()}
+              </Svg>
+              <View style={styles.legend}>
+                {medsByDay.names.slice(0, 6).map((n, i) => {
+                  const palette = [
+                    COLORS.brand,
+                    "#60A5FA",
+                    "#F472B6",
+                    "#34D399",
+                    "#A78BFA",
+                    "#FB923C",
+                  ];
+                  return (
+                    <View key={n} style={styles.legItem}>
+                      <View style={[styles.legDot, { backgroundColor: palette[i % palette.length] }]} />
+                      <Text style={styles.legTxt}>{n}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
           )}
         </View>
 

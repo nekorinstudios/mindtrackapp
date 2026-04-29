@@ -228,6 +228,84 @@ export default function Tasks() {
             Start each task, then mark done. 10 min minimum between completions.
           </Text>
 
+          <View style={[styles.medCard, { marginTop: 16 }]}>
+            <Text style={styles.medTitle}>Medicines</Text>
+            <Text style={styles.sub}>
+              Log each dose with a timestamp.
+            </Text>
+            <View style={styles.medAddRow}>
+              <TextInput
+                testID="medicine-name-input"
+                style={[styles.input, { flex: 2 }]}
+                value={medName}
+                onChangeText={setMedName}
+                placeholder="Medicine name"
+                placeholderTextColor={COLORS.text3}
+              />
+              <TextInput
+                testID="medicine-dose-input"
+                style={[styles.input, { flex: 1 }]}
+                value={medDose}
+                onChangeText={setMedDose}
+                placeholder="Dosage"
+                placeholderTextColor={COLORS.text3}
+              />
+            </View>
+            <TouchableOpacity
+              testID="medicine-add-btn"
+              style={styles.addBtn}
+              onPress={addMedicine}
+              disabled={medAdding}
+            >
+              {medAdding ? (
+                <ActivityIndicator color="#0B0B0B" />
+              ) : (
+                <Text style={styles.addBtnText}>Add medicine</Text>
+              )}
+            </TouchableOpacity>
+            {medicines.length === 0 ? (
+              <Text style={[styles.sub, { marginTop: 10 }]}>
+                No medicines yet. Add one to start logging doses.
+              </Text>
+            ) : (
+              medicines.map((m) => (
+                <View key={m.med_id} style={styles.medRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.medName}>
+                      {m.name}
+                      {m.dosage ? <Text style={styles.medDose}>  ·  {m.dosage}</Text> : null}
+                    </Text>
+                    <Text style={styles.medMeta}>
+                      {m.last_taken
+                        ? `Last taken: ${new Date(m.last_taken).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}`
+                        : "Not logged yet"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    testID={`medicine-take-${m.med_id}`}
+                    style={styles.medTakeBtn}
+                    onPress={() => logMedicine(m)}
+                  >
+                    <Ionicons name="time-outline" size={14} color="#0B0B0B" />
+                    <Text style={styles.medTakeText}>Took it now</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID={`medicine-delete-${m.med_id}`}
+                    onPress={() => deleteMedicine(m)}
+                    style={{ paddingLeft: 8 }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={COLORS.e_red} />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+
           <View style={styles.addCard}>
             <TextInput
               testID="task-title-input"
@@ -327,83 +405,6 @@ export default function Tasks() {
             </TouchableOpacity>
           )}
 
-          <View style={styles.medCard}>
-            <Text style={styles.medTitle}>Medicines</Text>
-            <Text style={styles.sub}>
-              Log each dose with a timestamp.
-            </Text>
-            <View style={styles.medAddRow}>
-              <TextInput
-                testID="medicine-name-input"
-                style={[styles.input, { flex: 2 }]}
-                value={medName}
-                onChangeText={setMedName}
-                placeholder="Medicine name"
-                placeholderTextColor={COLORS.text3}
-              />
-              <TextInput
-                testID="medicine-dose-input"
-                style={[styles.input, { flex: 1 }]}
-                value={medDose}
-                onChangeText={setMedDose}
-                placeholder="Dosage"
-                placeholderTextColor={COLORS.text3}
-              />
-            </View>
-            <TouchableOpacity
-              testID="medicine-add-btn"
-              style={styles.addBtn}
-              onPress={addMedicine}
-              disabled={medAdding}
-            >
-              {medAdding ? (
-                <ActivityIndicator color="#0B0B0B" />
-              ) : (
-                <Text style={styles.addBtnText}>Add medicine</Text>
-              )}
-            </TouchableOpacity>
-            {medicines.length === 0 ? (
-              <Text style={[styles.sub, { marginTop: 10 }]}>
-                No medicines yet. Add one to start logging doses.
-              </Text>
-            ) : (
-              medicines.map((m) => (
-                <View key={m.med_id} style={styles.medRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.medName}>
-                      {m.name}
-                      {m.dosage ? <Text style={styles.medDose}>  ·  {m.dosage}</Text> : null}
-                    </Text>
-                    <Text style={styles.medMeta}>
-                      {m.last_taken
-                        ? `Last taken: ${new Date(m.last_taken).toLocaleString([], {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}`
-                        : "Not logged yet"}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    testID={`medicine-take-${m.med_id}`}
-                    style={styles.medTakeBtn}
-                    onPress={() => logMedicine(m)}
-                  >
-                    <Ionicons name="time-outline" size={14} color="#0B0B0B" />
-                    <Text style={styles.medTakeText}>Took it now</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    testID={`medicine-delete-${m.med_id}`}
-                    onPress={() => deleteMedicine(m)}
-                    style={{ paddingLeft: 8 }}
-                  >
-                    <Ionicons name="trash-outline" size={18} color={COLORS.e_red} />
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
-          </View>
 
           <Text style={[styles.h2, { marginTop: 16 }]}>Your tasks</Text>
           {tasks.length === 0 ? (
