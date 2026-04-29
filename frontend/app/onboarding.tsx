@@ -13,7 +13,7 @@ import { useAuth } from "../src/auth";
 import { api, COLORS, formatApiError } from "../src/api";
 
 type Mode = "menu" | "pick" | "test";
-const ALL: ("ADHD" | "Bipolar" | "Autism")[] = ["ADHD", "Bipolar", "Autism"];
+const ALL: ("ADHD" | "AuDHD" | "Bipolar" | "Autism")[] = ["ADHD", "AuDHD", "Autism", "Bipolar"];
 
 export default function Onboarding() {
   const { user, updateDisorders, logout } = useAuth();
