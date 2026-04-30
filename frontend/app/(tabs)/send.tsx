@@ -99,10 +99,17 @@ export default function Send() {
 
             {lastResult ? (
               <View style={styles.result}>
-                <Text style={styles.resultTitle}>Report queued</Text>
+                <Text style={styles.resultTitle}>
+                  {lastResult.status === "sent"
+                    ? "Report sent ✓"
+                    : lastResult.status === "not_configured"
+                    ? "Report saved (email off)"
+                    : "Report queued"}
+                </Text>
                 <Text style={styles.resultText}>
-                  Sent to {lastResult.doctor_email} · {lastResult.symptom_entries} symptom
-                  entries, {lastResult.energy_entries} energy entries included.
+                  Sent to {lastResult.doctor_email} · {lastResult.symptom_entries} symptoms,
+                  {" "}{lastResult.energy_entries} energy, {lastResult.medicine_entries ?? 0} meds,
+                  {" "}{lastResult.journal_entries ?? 0} journal entries.
                 </Text>
                 {lastResult.note ? <Text style={styles.resultNote}>{lastResult.note}</Text> : null}
               </View>

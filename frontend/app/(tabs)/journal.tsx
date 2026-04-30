@@ -21,6 +21,12 @@ type Entry = {
   text: string;
   timestamp: string;
   linked_symptoms?: string[] | null;
+  linked_energy_percent?: number | null;
+};
+
+type TodayContext = {
+  symptoms: string[];
+  energy_percent: number | null;
 };
 
 export default function Journal() {
@@ -29,6 +35,7 @@ export default function Journal() {
   const [text, setText] = useState("");
   const [ts, setTs] = useState<Date>(new Date());
   const [saving, setSaving] = useState(false);
+  const [todayCtx, setTodayCtx] = useState<TodayContext>({ symptoms: [], energy_percent: null });
 
   // edit modal
   const [editing, setEditing] = useState<Entry | null>(null);
@@ -39,8 +46,12 @@ export default function Journal() {
 
   const load = useCallback(async () => {
     try {
-      const { data } = await api.get<Entry[]>("/journal");
-      setEntries(data);
+      const [entriesRes, ctxRes] = await Promise.all([
+        api.get<Entry[]>("/journal"),
+        api.get<TodayContext>("/journal/today-context"),
+      ]);
+      setEntries(entriesRes.data);
+      setTodayCtx(ctxRes.data);
     } catch {}
     setLoading(false);
   }, []);
@@ -123,6 +134,32 @@ export default function Journal() {
               <Text style={styles.tsText}>{ts.toLocaleString()}</Text>
               <Text style={{ color: COLORS.brand, fontWeight: "700", marginLeft: "auto" }}>Change</Text>
             </TouchableOpacity>
+
+            {(todayCtx.symptoms.length > 0 || todayCtx.energy_percent !== null) && (
+              <View style={styles.ctxBox} testID="journal-today-context">
+                <View style={styles.ctxHeader}>
+                  <Ionicons name="link-outline" size={14} color={COLORS.brand} />
+                  <Text style={styles.ctxHeaderText}>
+                    Today will be linked to this entry
+                  </Text>
+                </View>
+                <View style={styles.linkedChips}>
+                  {todayCtx.energy_percent !== null && (
+                    <View style={[styles.linkedChip, { backgroundColor: COLORS.brand }]}>
+                      <Text style={[styles.linkedChipText, { color: "#0B0B0B", fontWeight: "800" }]}>
+                        ⚡ Energy {todayCtx.energy_percent}%
+                      </Text>
+                    </View>
+                  )}
+                  {todayCtx.symptoms.map((s) => (
+                    <View key={s} style={styles.linkedChip}>
+                      <Text style={styles.linkedChipText}>{s}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
             <TextInput
               testID="journal-text-input"
               style={styles.textarea}
@@ -175,11 +212,18 @@ export default function Journal() {
                   </View>
                 </View>
                 <Text style={styles.entryText}>{e.text}</Text>
-                {e.linked_symptoms && e.linked_symptoms.length > 0 ? (
+                {(e.linked_symptoms && e.linked_symptoms.length > 0) || e.linked_energy_percent != null ? (
                   <View style={styles.linkedWrap}>
-                    <Text style={styles.linkedLabel}>Linked symptoms:</Text>
+                    <Text style={styles.linkedLabel}>Linked that day:</Text>
                     <View style={styles.linkedChips}>
-                      {e.linked_symptoms.map((s) => (
+                      {e.linked_energy_percent != null && (
+                        <View style={[styles.linkedChip, { backgroundColor: COLORS.brand }]}>
+                          <Text style={[styles.linkedChipText, { color: "#0B0B0B", fontWeight: "800" }]}>
+                            ⚡ {e.linked_energy_percent}%
+                          </Text>
+                        </View>
+                      )}
+                      {(e.linked_symptoms || []).map((s) => (
                         <View key={s} style={styles.linkedChip}>
                           <Text style={styles.linkedChipText}>{s}</Text>
                         </View>
@@ -351,6 +395,17 @@ const styles = StyleSheet.create({
     borderRadius: 99,
   },
   linkedChipText: { color: COLORS.text2, fontSize: 12, fontWeight: "600" },
+
+  ctxBox: {
+    backgroundColor: COLORS.bg,
+    borderColor: COLORS.brand,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+  },
+  ctxHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  ctxHeaderText: { color: COLORS.brand, fontSize: 12, fontWeight: "800" },
 
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", padding: 16, justifyContent: "center" },
   modalCard: { backgroundColor: COLORS.bg2, borderRadius: 20, padding: 18 },

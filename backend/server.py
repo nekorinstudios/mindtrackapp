@@ -10,6 +10,8 @@ import logging
 import bcrypt
 import jwt
 import httpx
+import asyncio
+import resend
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
@@ -23,6 +25,12 @@ from pydantic import BaseModel, EmailStr, Field
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
+
+# --- Resend email config ---
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 # --- Auth helpers ---
 JWT_ALGORITHM = "HS256"
@@ -581,30 +589,60 @@ async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
 
 
 # --- Journal ---
+def _day_window_utc(ts: datetime) -> tuple[datetime, datetime]:
+    """Return (start_of_day, end_of_day) UTC for the given timestamp."""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    start = ts.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    return start, end
+
+
+async def _build_day_context(user_id: str, ts: datetime) -> dict:
+    """Aggregate today's symptom logs + latest energy for a given timestamp's calendar day."""
+    start, end = _day_window_utc(ts)
+    sym_cursor = db.symptom_logs.find(
+        {"user_id": user_id, "created_at": {"$gte": start, "$lt": end}},
+        {"_id": 0},
+    ).sort("created_at", -1)
+    symptoms: list[str] = []
+    seen: set[str] = set()
+    async for s in sym_cursor:
+        for name in (s.get("symptoms") or []):
+            if name not in seen:
+                seen.add(name)
+                symptoms.append(name)
+    energy_doc = await db.energy_logs.find_one(
+        {"user_id": user_id, "created_at": {"$gte": start, "$lt": end}},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    energy_percent = int(energy_doc["percent"]) if energy_doc and energy_doc.get("percent") is not None else None
+    return {"symptoms": symptoms, "energy_percent": energy_percent}
+
+
+@api.get("/journal/today-context")
+async def journal_today_context(user: dict = Depends(get_current_user)):
+    """Returns today's symptom snapshot so the compose UI can preview what will be linked."""
+    ctx = await _build_day_context(user["user_id"], datetime.now(timezone.utc))
+    return ctx
+
+
 @api.post("/journal")
 async def create_journal(body: JournalIn, user: dict = Depends(get_current_user)):
     entry_id = f"j_{uuid.uuid4().hex[:12]}"
     ts = body.timestamp or datetime.now(timezone.utc)
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
-    # Attach recent symptom log if exists within last 2 hours
-    recent = await db.symptom_logs.find_one(
-        {"user_id": user["user_id"]}, {"_id": 0}, sort=[("created_at", -1)]
-    )
-    linked = None
-    if recent:
-        rts = recent.get("created_at")
-        if isinstance(rts, datetime):
-            if rts.tzinfo is None:
-                rts = rts.replace(tzinfo=timezone.utc)
-            if (datetime.now(timezone.utc) - rts).total_seconds() <= 7200:
-                linked = recent.get("symptoms") or []
+    # Auto-link every symptom logged on the SAME calendar day as the entry timestamp
+    ctx = await _build_day_context(user["user_id"], ts)
     doc = {
         "entry_id": entry_id,
         "user_id": user["user_id"],
         "text": body.text,
         "timestamp": ts,
-        "linked_symptoms": linked,
+        "linked_symptoms": ctx["symptoms"] or None,
+        "linked_energy_percent": ctx["energy_percent"],
         "created_at": datetime.now(timezone.utc),
     }
     await db.journal.insert_one(doc)
@@ -748,17 +786,183 @@ async def delete_music(track_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-# --- Send report (mock email) ---
+# --- Send report via Resend email ---
+def _render_report_html(
+    user: dict,
+    days: int,
+    sym: list,
+    eng: list,
+    meds: list,
+    jrnl: list,
+) -> str:
+    """Build a simple, email-client-safe HTML report from raw logs."""
+    # Aggregate symptoms by calendar day (UTC)
+    day_map: dict[str, dict] = {}
+    for s in sym:
+        ts = s.get("created_at")
+        if not isinstance(ts, datetime):
+            continue
+        key = ts.strftime("%Y-%m-%d")
+        bucket = day_map.setdefault(key, {"symptoms": set(), "energy": [], "meds": [], "notes": []})
+        for name in (s.get("symptoms") or []):
+            bucket["symptoms"].add(name)
+        if s.get("note"):
+            bucket["notes"].append(s["note"])
+    for e in eng:
+        ts = e.get("created_at")
+        if not isinstance(ts, datetime):
+            continue
+        key = ts.strftime("%Y-%m-%d")
+        bucket = day_map.setdefault(key, {"symptoms": set(), "energy": [], "meds": [], "notes": []})
+        if e.get("percent") is not None:
+            bucket["energy"].append(int(e["percent"]))
+    for m in meds:
+        ts = m.get("taken_at")
+        if not isinstance(ts, datetime):
+            continue
+        key = ts.strftime("%Y-%m-%d")
+        bucket = day_map.setdefault(key, {"symptoms": set(), "energy": [], "meds": [], "notes": []})
+        label = m.get("name") or ""
+        bucket["meds"].append(f"{label} @ {ts.strftime('%H:%M')}")
+    rows = []
+    for key in sorted(day_map.keys(), reverse=True):
+        d = day_map[key]
+        energy = d["energy"]
+        e_avg = f"{sum(energy) // len(energy)}%" if energy else "—"
+        syms = ", ".join(sorted(d["symptoms"])) if d["symptoms"] else "—"
+        mds = ", ".join(d["meds"]) if d["meds"] else "—"
+        note = "<br>".join(d["notes"]) if d["notes"] else ""
+        rows.append(
+            f"""
+            <tr style="border-bottom:1px solid #e5e7eb;">
+              <td style="padding:10px 8px;font-weight:700;color:#111827;white-space:nowrap;">{key}</td>
+              <td style="padding:10px 8px;color:#111827;">{e_avg}</td>
+              <td style="padding:10px 8px;color:#374151;">{syms}</td>
+              <td style="padding:10px 8px;color:#374151;">{mds}</td>
+              <td style="padding:10px 8px;color:#6b7280;font-style:italic;">{note}</td>
+            </tr>
+            """
+        )
+    day_table = "".join(rows) or '<tr><td colspan="5" style="padding:16px;color:#6b7280;">No logs in this period.</td></tr>'
+
+    # Journal entries
+    j_items = []
+    for j in jrnl:
+        ts = j.get("timestamp")
+        ts_str = ts.strftime("%Y-%m-%d %H:%M") if isinstance(ts, datetime) else ""
+        linked = j.get("linked_symptoms") or []
+        linked_html = ""
+        if linked:
+            chips = "".join(
+                f'<span style="display:inline-block;background:#eff6ff;color:#1e40af;padding:3px 9px;border-radius:99px;font-size:12px;margin:2px;">{x}</span>'
+                for x in linked
+            )
+            linked_html = f'<div style="margin-top:6px;">{chips}</div>'
+        energy = j.get("linked_energy_percent")
+        energy_html = (
+            f'<div style="margin-top:4px;color:#6b7280;font-size:12px;">Energy that day: <b>{int(energy)}%</b></div>'
+            if energy is not None
+            else ""
+        )
+        text = (j.get("text") or "").replace("\n", "<br>")
+        j_items.append(
+            f"""
+            <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-bottom:10px;background:#ffffff;">
+              <div style="color:#6b7280;font-size:12px;font-weight:700;">{ts_str}</div>
+              <div style="color:#111827;margin-top:6px;line-height:1.5;">{text}</div>
+              {linked_html}
+              {energy_html}
+            </div>
+            """
+        )
+    j_block = "".join(j_items) or '<div style="color:#6b7280;">No journal entries in this period.</div>'
+
+    name = user.get("name") or user.get("username") or user.get("email")
+    return f"""
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">
+  <table width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f6;padding:24px 0;">
+    <tr><td align="center">
+      <table width="640" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+        <tr><td style="background:#4F8FF7;padding:24px 28px;">
+          <div style="color:#ffffff;font-size:22px;font-weight:800;">MindTrack report</div>
+          <div style="color:#dbeafe;margin-top:4px;">Last {days} days · {name}</div>
+        </td></tr>
+        <tr><td style="padding:22px 28px;">
+          <h2 style="margin:0 0 12px 0;color:#111827;font-size:18px;">Daily snapshot</h2>
+          <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#f9fafb;">
+                <th align="left" style="padding:10px 8px;color:#6b7280;font-weight:700;">Date</th>
+                <th align="left" style="padding:10px 8px;color:#6b7280;font-weight:700;">Energy</th>
+                <th align="left" style="padding:10px 8px;color:#6b7280;font-weight:700;">Feelings / symptoms</th>
+                <th align="left" style="padding:10px 8px;color:#6b7280;font-weight:700;">Medicines</th>
+                <th align="left" style="padding:10px 8px;color:#6b7280;font-weight:700;">Notes</th>
+              </tr>
+            </thead>
+            <tbody>{day_table}</tbody>
+          </table>
+
+          <h2 style="margin:26px 0 12px 0;color:#111827;font-size:18px;">Journal entries</h2>
+          {j_block}
+
+          <p style="margin-top:24px;color:#6b7280;font-size:12px;line-height:1.5;">
+            This report was generated from <b>MindTrack</b> on behalf of {name}. It contains self-reported data and is intended to support — not replace — clinical assessment.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
+
 @api.post("/reports/send")
 async def send_report(body: SendReportIn, user: dict = Depends(get_current_user)):
     since = datetime.now(timezone.utc) - timedelta(days=body.days)
     sym = await db.symptom_logs.find(
         {"user_id": user["user_id"], "created_at": {"$gte": since}}, {"_id": 0}
-    ).to_list(1000)
+    ).to_list(5000)
     eng = await db.energy_logs.find(
         {"user_id": user["user_id"], "created_at": {"$gte": since}}, {"_id": 0}
-    ).to_list(1000)
+    ).to_list(5000)
+    meds = await db.medicine_logs.find(
+        {"user_id": user["user_id"], "taken_at": {"$gte": since}}, {"_id": 0}
+    ).to_list(5000)
+    jrnl = await db.journal.find(
+        {"user_id": user["user_id"], "timestamp": {"$gte": since}}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(2000)
+
     report_id = f"rep_{uuid.uuid4().hex[:12]}"
+    html = _render_report_html(user, body.days, sym, eng, meds, jrnl)
+
+    send_status = "queued"
+    send_error: Optional[str] = None
+    resend_id: Optional[str] = None
+
+    if RESEND_API_KEY:
+        params = {
+            "from": f"MindTrack <{SENDER_EMAIL}>",
+            "to": [body.doctor_email],
+            "subject": f"MindTrack report — {user.get('name') or user.get('username') or user.get('email')} · last {body.days} days",
+            "html": html,
+            "reply_to": user.get("email"),
+        }
+        try:
+            email_result = await asyncio.to_thread(resend.Emails.send, params)
+            resend_id = (email_result or {}).get("id") if isinstance(email_result, dict) else getattr(email_result, "id", None)
+            send_status = "sent"
+        except Exception as e:
+            send_status = "failed"
+            send_error = str(e)
+            logger = logging.getLogger("uvicorn.error")
+            logger.error(f"Resend send failed: {send_error}")
+    else:
+        send_status = "not_configured"
+        send_error = "RESEND_API_KEY missing on server"
+
     await db.reports_sent.insert_one(
         {
             "report_id": report_id,
@@ -767,17 +971,36 @@ async def send_report(body: SendReportIn, user: dict = Depends(get_current_user)
             "days": body.days,
             "symptom_count": len(sym),
             "energy_count": len(eng),
+            "medicine_count": len(meds),
+            "journal_count": len(jrnl),
+            "status": send_status,
+            "resend_id": resend_id,
+            "error": send_error,
             "created_at": datetime.now(timezone.utc),
         }
     )
-    # In production: integrate real email. For now, mocked send.
+
+    if send_status == "failed":
+        raise HTTPException(
+            status_code=502,
+            detail=f"Email provider rejected the send: {send_error}",
+        )
+
+    note_map = {
+        "sent": None,
+        "not_configured": "Server is not configured to send email (RESEND_API_KEY missing). Report recorded.",
+    }
     return {
         "ok": True,
         "report_id": report_id,
         "doctor_email": body.doctor_email,
         "symptom_entries": len(sym),
         "energy_entries": len(eng),
-        "note": "MOCKED email: report recorded. Email delivery is not configured.",
+        "medicine_entries": len(meds),
+        "journal_entries": len(jrnl),
+        "status": send_status,
+        "resend_id": resend_id,
+        "note": note_map.get(send_status),
     }
 
 
