@@ -86,13 +86,11 @@ const styles = StyleSheet.create({
   },
   primaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
   outline: {
-    borderWidth: 2,
-    borderColor: COLORS.brand,
-    paddingVertical: 14,
+    backgroundColor: "#0B0B0B",
+    paddingVertical: 16,
     borderRadius: 14,
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.6)",
   },
-  outlineText: { color: COLORS.brand, fontWeight: "700", fontSize: 16 },
+  outlineText: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
   finePrint: { textAlign: "center", color: COLORS.text3, fontSize: 12, marginTop: 8 },
 });
