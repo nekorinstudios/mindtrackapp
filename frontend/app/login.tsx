@@ -134,25 +134,6 @@ export default function Login() {
             )}
           </TouchableOpacity>
 
-          <View style={styles.divider}>
-            <View style={styles.line} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.line} />
-          </View>
-
-          <TouchableOpacity
-            testID="login-google-btn"
-            style={styles.google}
-            onPress={onGoogle}
-            disabled={googleLoading}
-          >
-            {googleLoading ? (
-              <ActivityIndicator color={COLORS.text} />
-            ) : (
-              <Text style={styles.googleText}>Continue with Google</Text>
-            )}
-          </TouchableOpacity>
-
           <TouchableOpacity onPress={() => router.replace("/signup")} style={styles.swap}>
             <Text style={styles.swapText}>
               No account yet? <Text style={{ color: COLORS.brand, fontWeight: "700" }}>Sign up</Text>

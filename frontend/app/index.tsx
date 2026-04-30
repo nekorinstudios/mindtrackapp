@@ -79,12 +79,12 @@ const styles = StyleSheet.create({
   tagline: { marginTop: 12, fontSize: 18, color: COLORS.text2, lineHeight: 26 },
   actions: { gap: 12, marginBottom: 24 },
   primary: {
-    backgroundColor: COLORS.brand,
+    backgroundColor: "#0B0B0B",
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: "center",
   },
-  primaryText: { color: "#0B0B0B", fontWeight: "700", fontSize: 16 },
+  primaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
   outline: {
     borderWidth: 2,
     borderColor: COLORS.brand,
