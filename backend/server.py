@@ -83,7 +83,8 @@ class RegisterIn(BaseModel):
     email: EmailStr
     username: str
     password: str
-    name: Optional[str] = None
+    first_name: str
+    last_name: str
 
 class LoginIn(BaseModel):
     identifier: str  # email or username
@@ -94,6 +95,8 @@ class UserOut(BaseModel):
     email: str
     username: str
     name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     picture: Optional[str] = None
     disorders: List[str] = []
     role: str = "user"
@@ -282,16 +285,25 @@ ASSESSMENT_QUESTIONS = {
 async def register(body: RegisterIn):
     email = body.email.lower().strip()
     username = body.username.lower().strip()
+    first_name = body.first_name.strip()
+    last_name = body.last_name.strip()
     if len(body.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if not first_name:
+        raise HTTPException(status_code=400, detail="First name is required")
+    if not last_name:
+        raise HTTPException(status_code=400, detail="Last name is required")
     if await db.users.find_one({"$or": [{"email": email}, {"username": username}]}):
         raise HTTPException(status_code=400, detail="Email or username already taken")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
+    full_name = f"{first_name} {last_name}"
     doc = {
         "user_id": user_id,
         "email": email,
         "username": username,
-        "name": body.name or username,
+        "name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
         "picture": None,
         "password_hash": hash_password(body.password),
         "disorders": [],
@@ -301,7 +313,10 @@ async def register(body: RegisterIn):
     }
     await db.users.insert_one(doc)
     token = create_access_token(user_id, email)
-    return AuthOut(access_token=token, user=UserOut(**{k: doc[k] for k in ["user_id", "email", "username", "name", "picture", "disorders", "role"]}))
+    return AuthOut(
+        access_token=token,
+        user=UserOut(**{k: doc[k] for k in ["user_id", "email", "username", "name", "first_name", "last_name", "picture", "disorders", "role"]}),
+    )
 
 
 @api.post("/auth/login", response_model=AuthOut)
@@ -311,7 +326,7 @@ async def login(body: LoginIn):
     if not user or not user.get("password_hash") or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token(user["user_id"], user["email"])
-    u = {k: user.get(k) for k in ["user_id", "email", "username", "name", "picture", "disorders", "role"]}
+    u = {k: user.get(k) for k in ["user_id", "email", "username", "name", "first_name", "last_name", "picture", "disorders", "role"]}
     u["disorders"] = u.get("disorders") or []
     u["role"] = u.get("role") or "user"
     return AuthOut(access_token=token, user=UserOut(**u))
@@ -374,7 +389,7 @@ async def google_auth(body: GoogleAuthIn):
 
 @api.get("/auth/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
-    u = {k: user.get(k) for k in ["user_id", "email", "username", "name", "picture", "disorders", "role"]}
+    u = {k: user.get(k) for k in ["user_id", "email", "username", "name", "first_name", "last_name", "picture", "disorders", "role"]}
     u["disorders"] = u.get("disorders") or []
     u["role"] = u.get("role") or "user"
     return UserOut(**u)
@@ -389,6 +404,8 @@ async def update_disorders(body: UpdateDisordersIn, user: dict = Depends(get_cur
         email=user["email"],
         username=user["username"],
         name=user.get("name"),
+        first_name=user.get("first_name"),
+        last_name=user.get("last_name"),
         picture=user.get("picture"),
         disorders=body.disorders,
         role=user.get("role") or "user",
@@ -570,7 +587,7 @@ async def check_task(body: TaskCheckIn, user: dict = Depends(get_current_user)):
                     "email": user["email"],
                     "choice": award.get("choice", "flowers"),
                     "created_at": now,
-                    "message": f"User {user['email']} completed 30 tasks and earned their monthly reward!",
+                    "message": f"User {_display_name(user)} ({user['email']}) completed 30 tasks and earned their monthly reward!",
                 }
             )
             await db.award_progress.update_one(
@@ -787,6 +804,21 @@ async def delete_music(track_id: str, user: dict = Depends(get_current_user)):
 
 
 # --- Send report via Resend email ---
+def _display_name(user: dict) -> str:
+    """Return the user's real full name (First Last) for reports/emails.
+    Falls back to 'name' field, then email local-part if first/last missing
+    (pre-existing accounts created before first_name/last_name were required)."""
+    first = (user.get("first_name") or "").strip()
+    last = (user.get("last_name") or "").strip()
+    if first or last:
+        return (f"{first} {last}").strip()
+    name = (user.get("name") or "").strip()
+    if name:
+        return name
+    email = user.get("email") or ""
+    return email.split("@")[0] if email else "(unnamed user)"
+
+
 def _render_report_html(
     user: dict,
     days: int,
@@ -877,7 +909,7 @@ def _render_report_html(
         )
     j_block = "".join(j_items) or '<div style="color:#6b7280;">No journal entries in this period.</div>'
 
-    name = user.get("name") or user.get("username") or user.get("email")
+    name = _display_name(user)
     return f"""
 <!DOCTYPE html>
 <html>
@@ -943,10 +975,11 @@ async def send_report(body: SendReportIn, user: dict = Depends(get_current_user)
     resend_id: Optional[str] = None
 
     if RESEND_API_KEY:
+        full_name = _display_name(user)
         params = {
             "from": f"MindTrack <{SENDER_EMAIL}>",
             "to": [body.doctor_email],
-            "subject": f"MindTrack report — {user.get('name') or user.get('username') or user.get('email')} · last {body.days} days",
+            "subject": f"MindTrack report — {full_name} · last {body.days} days",
             "html": html,
             "reply_to": user.get("email"),
         }
@@ -1371,7 +1404,9 @@ async def startup():
                 "user_id": f"user_{uuid.uuid4().hex[:12]}",
                 "email": admin_email,
                 "username": admin_username,
-                "name": "Admin",
+                "name": "Admin User",
+                "first_name": "Admin",
+                "last_name": "User",
                 "picture": None,
                 "password_hash": hash_password(admin_password),
                 "disorders": [],

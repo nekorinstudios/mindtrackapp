@@ -16,9 +16,10 @@ import { useAuth } from "../src/auth";
 import { COLORS, formatApiError } from "../src/api";
 
 export default function Signup() {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
-  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -27,6 +28,14 @@ export default function Signup() {
 
   const onSubmit = async () => {
     setError("");
+    if (!firstName.trim()) {
+      setError("Please enter your first name");
+      return;
+    }
+    if (!lastName.trim()) {
+      setError("Please enter your last name");
+      return;
+    }
     if (!email || !username || !password) {
       setError("Fill in email, username and password");
       return;
@@ -37,7 +46,13 @@ export default function Signup() {
     }
     setLoading(true);
     try {
-      await register(email.trim(), username.trim(), password, name.trim() || undefined);
+      await register(
+        email.trim(),
+        username.trim(),
+        password,
+        firstName.trim(),
+        lastName.trim()
+      );
       router.replace("/onboarding");
     } catch (e: any) {
       setError(formatApiError(e));
@@ -62,8 +77,37 @@ export default function Signup() {
           </TouchableOpacity>
           <Text style={styles.title}>Create your account</Text>
           <Text style={styles.sub}>
-            Start tracking your daily symptoms and energy.
+            Your name will appear on reports sent to your doctor.
           </Text>
+
+          <View style={styles.nameRow}>
+            <View style={[styles.field, { flex: 1 }]}>
+              <Text style={styles.label}>First name</Text>
+              <TextInput
+                testID="signup-first-name-input"
+                style={styles.input}
+                autoCapitalize="words"
+                autoCorrect={false}
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="Jordan"
+                placeholderTextColor={COLORS.text3}
+              />
+            </View>
+            <View style={[styles.field, { flex: 1 }]}>
+              <Text style={styles.label}>Last name</Text>
+              <TextInput
+                testID="signup-last-name-input"
+                style={styles.input}
+                autoCapitalize="words"
+                autoCorrect={false}
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Lee"
+                placeholderTextColor={COLORS.text3}
+              />
+            </View>
+          </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>Email</Text>
@@ -89,17 +133,6 @@ export default function Signup() {
               value={username}
               onChangeText={setUsername}
               placeholder="e.g. jordan"
-              placeholderTextColor={COLORS.text3}
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Display name (optional)</Text>
-            <TextInput
-              testID="signup-name-input"
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="Jordan"
               placeholderTextColor={COLORS.text3}
             />
           </View>
@@ -149,6 +182,7 @@ const styles = StyleSheet.create({
   backText: { color: COLORS.text2, fontSize: 15 },
   title: { fontSize: 30, fontWeight: "800", color: COLORS.text, marginTop: 16 },
   sub: { color: COLORS.text2, marginTop: 6, marginBottom: 24, fontSize: 15 },
+  nameRow: { flexDirection: "row", gap: 10 },
   field: { marginBottom: 14 },
   label: { color: COLORS.text2, fontSize: 13, marginBottom: 6, fontWeight: "600" },
   input: {

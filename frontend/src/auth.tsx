@@ -6,6 +6,8 @@ export type User = {
   email: string;
   username: string;
   name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   picture?: string | null;
   disorders: string[];
   role: string;
@@ -18,7 +20,8 @@ type AuthCtx = {
     email: string,
     username: string,
     password: string,
-    name?: string
+    first_name: string,
+    last_name: string
   ) => Promise<User>;
   googleLogin: (session_id: string) => Promise<User>;
   updateDisorders: (disorders: string[]) => Promise<User>;
@@ -72,13 +75,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string,
     username: string,
     password: string,
-    name?: string
+    first_name: string,
+    last_name: string
   ) => {
     const { data } = await api.post("/auth/register", {
       email,
       username,
       password,
-      name,
+      first_name,
+      last_name,
     });
     await saveToken(data.access_token);
     setUser(data.user);
