@@ -8,11 +8,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
   ActivityIndicator,
-  Linking,
 } from "react-native";
-import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useAuth } from "../src/auth";
@@ -22,9 +19,8 @@ export default function Login() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
-  const { login, googleLogin } = useAuth();
+  const { login } = useAuth();
   const router = useRouter();
 
   const onLogin = async () => {
@@ -42,37 +38,6 @@ export default function Login() {
       setError(formatApiError(e));
     } finally {
       setLoading(false);
-    }
-  };
-
-  // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-  const onGoogle = async () => {
-    setError("");
-    setGoogleLoading(true);
-    try {
-      const appUrl = process.env.EXPO_PUBLIC_BACKEND_URL as string;
-      const redirectUrl = `${appUrl}/auth-callback`;
-      const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(
-        redirectUrl
-      )}`;
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-      if (result.type === "success" && result.url) {
-        // URL contains #session_id=XYZ
-        const m = result.url.match(/session_id=([^&#]+)/);
-        if (!m) throw new Error("No session_id in redirect URL");
-        const sid = decodeURIComponent(m[1]);
-        const u = await googleLogin(sid);
-        if (!u.disorders || u.disorders.length === 0) router.replace("/onboarding");
-        else router.replace("/(tabs)/home");
-      } else if (result.type === "cancel" || result.type === "dismiss") {
-        // user cancelled
-      } else {
-        throw new Error("Google login failed");
-      }
-    } catch (e: any) {
-      setError(formatApiError(e));
-    } finally {
-      setGoogleLoading(false);
     }
   };
 
@@ -172,18 +137,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   primaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
-  divider: { flexDirection: "row", alignItems: "center", marginVertical: 22, gap: 8 },
-  line: { flex: 1, height: 1, backgroundColor: COLORS.border },
-  dividerText: { color: COLORS.text3, fontSize: 13 },
-  google: {
-    backgroundColor: COLORS.bg2,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  googleText: { color: COLORS.text, fontWeight: "700", fontSize: 16 },
   swap: { marginTop: 20, alignItems: "center" },
   swapText: { color: COLORS.text2, fontSize: 14 },
 });
