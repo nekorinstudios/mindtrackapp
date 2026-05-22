@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, View, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../src/auth";
 import { COLORS } from "../../src/api";
 import { scheduleDailyAppReminder } from "../../src/notify";
@@ -9,6 +10,7 @@ import { scheduleDailyAppReminder } from "../../src/notify";
 export default function TabsLayout() {
   const { user } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (user === null) {
@@ -43,9 +45,13 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: COLORS.bg2,
           borderTopColor: COLORS.border,
-          height: Platform.OS === "ios" ? 86 : 68,
+          // Total bar height = visual chrome + safe-area inset for the system nav bar
+          height:
+            (Platform.OS === "ios" ? 58 : 58) +
+            Math.max(insets.bottom, Platform.OS === "android" ? 12 : 24),
           paddingTop: 6,
-          paddingBottom: Platform.OS === "ios" ? 28 : 10,
+          paddingBottom:
+            Math.max(insets.bottom, Platform.OS === "android" ? 12 : 24),
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
       }}
