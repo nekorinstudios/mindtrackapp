@@ -33,7 +33,8 @@ export default function Login() {
     setLoading(true);
     try {
       const u = await login(identifier.trim(), password);
-      if (!u.disorders || u.disorders.length === 0) router.replace("/onboarding");
+      if (u.role === "admin") router.replace("/(tabs)/home");
+      else if (!u.disorders || u.disorders.length === 0) router.replace("/onboarding");
       else router.replace("/(tabs)/home");
     } catch (e: any) {
       setError(formatApiError(e));

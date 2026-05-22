@@ -12,7 +12,9 @@ export default function Landing() {
   useEffect(() => {
     if (user === undefined) return;
     if (user) {
-      if (!user.disorders || user.disorders.length === 0) {
+      if (user.role === "admin") {
+        router.replace("/(tabs)/home");
+      } else if (!user.disorders || user.disorders.length === 0) {
         router.replace("/onboarding");
       } else {
         router.replace("/(tabs)/home");

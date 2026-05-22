@@ -13,9 +13,12 @@ export default function TabsLayout() {
   useEffect(() => {
     if (user === null) {
       router.replace("/");
+    } else if (user && user.role === "admin") {
+      // Admins skip onboarding + paywall entirely.
+      // Nothing to do — stay on tabs.
     } else if (user && (!user.disorders || user.disorders.length === 0)) {
       router.replace("/onboarding");
-    } else if (user && user.has_access === false && user.role !== "admin") {
+    } else if (user && user.has_access === false) {
       router.replace("/paywall");
     }
     if (user) {
