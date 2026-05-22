@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -62,22 +63,53 @@ export default function Admin() {
       });
       if (res.canceled) return;
       const f = res.assets[0];
-      const b64 = await FileSystem.readAsStringAsync(f.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+
+      // Read file as base64 — different code path per platform
+      let b64 = "";
+      if (Platform.OS === "web") {
+        // expo-file-system doesn't work properly on web; use FileReader
+        const resp = await fetch(f.uri);
+        const blob = await resp.blob();
+        b64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = (reader.result as string) || "";
+            // strip data:audio/...;base64, prefix
+            const idx = result.indexOf(",");
+            resolve(idx >= 0 ? result.slice(idx + 1) : result);
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        b64 = await FileSystem.readAsStringAsync(f.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+
+      // Pre-flight size guard (proxies usually cap around 8 MB request body)
+      const approxBytes = (b64.length * 3) / 4;
+      if (approxBytes > 7 * 1024 * 1024) {
+        Alert.alert(
+          "File too large",
+          `That track is ~${(approxBytes / (1024 * 1024)).toFixed(1)} MB. Please pick a file under 7 MB.`
+        );
+        return;
+      }
+
       if (!title.trim()) {
         setTitle(f.name.replace(/\.[^.]+$/, ""));
       }
       setUploading(true);
-      const fd = new FormData();
-      fd.append("title", title.trim() || f.name);
-      fd.append("mime", f.mimeType || "audio/mpeg");
-      fd.append("data_base64", b64);
-      await api.post("/music/upload", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
+      // Send as JSON to avoid React Native multipart-boundary issues
+      await api.post("/music/upload", {
+        title: title.trim() || f.name,
+        mime: f.mimeType || "audio/mpeg",
+        data_base64: b64,
       });
       setTitle("");
       await load();
+      Alert.alert("Uploaded", `"${title.trim() || f.name}" is ready in the music library.`);
     } catch (e: any) {
       Alert.alert("Upload failed", formatApiError(e));
     } finally {

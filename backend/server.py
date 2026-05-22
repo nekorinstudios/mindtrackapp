@@ -993,22 +993,30 @@ async def get_music_data(track_id: str, user: dict = Depends(get_current_user)):
     }
 
 
+class MusicUploadIn(BaseModel):
+    title: str
+    mime: str = "audio/mpeg"
+    data_base64: str
+
+
 @api.post("/music/upload")
 async def upload_music(
-    title: str = Form(...),
-    mime: str = Form("audio/mpeg"),
-    data_base64: str = Form(...),
+    body: MusicUploadIn,
     user: dict = Depends(get_current_user),
 ):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
+    if not body.title or not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not body.data_base64:
+        raise HTTPException(status_code=400, detail="No audio data provided")
     track_id = f"trk_{uuid.uuid4().hex[:12]}"
     await db.music.insert_one(
         {
             "track_id": track_id,
-            "title": title,
-            "mime": mime,
-            "data_base64": data_base64,
+            "title": body.title.strip(),
+            "mime": body.mime or "audio/mpeg",
+            "data_base64": body.data_base64,
             "uploaded_by": user["user_id"],
             "created_at": datetime.now(timezone.utc),
         }
