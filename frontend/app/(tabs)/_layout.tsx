@@ -15,6 +15,8 @@ export default function TabsLayout() {
       router.replace("/");
     } else if (user && (!user.disorders || user.disorders.length === 0)) {
       router.replace("/onboarding");
+    } else if (user && user.has_access === false && user.role !== "admin") {
+      router.replace("/paywall");
     }
     if (user) {
       scheduleDailyAppReminder();

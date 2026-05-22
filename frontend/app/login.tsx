@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -55,6 +56,13 @@ export default function Login() {
           >
             <Text style={styles.backText}>← Back</Text>
           </TouchableOpacity>
+          <View style={styles.logoWrap}>
+            <Image
+              source={require("../assets/mindtrack-logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.sub}>Sign in to continue your tracking.</Text>
 
@@ -115,6 +123,8 @@ const styles = StyleSheet.create({
   scroll: { padding: 24, paddingBottom: 48 },
   back: { marginBottom: 8 },
   backText: { color: COLORS.text2, fontSize: 15 },
+  logoWrap: { alignItems: "center", marginTop: 12 },
+  logo: { width: 96, height: 96 },
   title: { fontSize: 30, fontWeight: "800", color: COLORS.text, marginTop: 16 },
   sub: { color: COLORS.text2, marginTop: 6, marginBottom: 24, fontSize: 15 },
   field: { marginBottom: 14 },

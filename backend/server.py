@@ -12,6 +12,7 @@ import jwt
 import httpx
 import asyncio
 import resend
+import stripe
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
@@ -31,6 +32,38 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
+
+# --- Stripe subscription config ---
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PAYMENT_LINK = os.environ.get("STRIPE_PAYMENT_LINK", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+SUBSCRIPTION_PRICE_USD = os.environ.get("SUBSCRIPTION_PRICE_USD", "1.99")
+SUBSCRIPTION_TRIAL_DAYS = int(os.environ.get("SUBSCRIPTION_TRIAL_DAYS", "7"))
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
+
+
+def _has_subscription_access(user: dict) -> bool:
+    """Return True if user currently has paid access (trialing/active or admin)."""
+    if (user.get("role") or "") == "admin":
+        return True
+    sub_status = (user.get("subscription_status") or "").lower()
+    if sub_status in ("trialing", "active"):
+        # If trialing, also check trial_end is in the future
+        if sub_status == "trialing":
+            trial_end = user.get("trial_end")
+            if isinstance(trial_end, datetime):
+                if trial_end.tzinfo is None:
+                    trial_end = trial_end.replace(tzinfo=timezone.utc)
+                return trial_end > datetime.now(timezone.utc)
+        return True
+    return False
+
+
+async def require_subscription(user: dict = None):
+    """Dependency that raises 402 if the user has no active subscription/trial."""
+    # placeholder; resolved in endpoint level using current user
+    return user
 
 # --- Auth helpers ---
 JWT_ALGORITHM = "HS256"
@@ -100,6 +133,9 @@ class UserOut(BaseModel):
     picture: Optional[str] = None
     disorders: List[str] = []
     role: str = "user"
+    subscription_status: Optional[str] = None  # trialing|active|past_due|canceled|expired
+    trial_end: Optional[datetime] = None
+    has_access: bool = False
 
 class AuthOut(BaseModel):
     access_token: str
@@ -281,6 +317,33 @@ ASSESSMENT_QUESTIONS = {
 
 
 # --- Auth endpoints ---
+def _user_out_dict(u: dict) -> dict:
+    """Normalize a user document into a UserOut payload (incl. subscription)."""
+    sub_status = (u.get("subscription_status") or "").lower() or None
+    trial_end = u.get("trial_end")
+    if isinstance(trial_end, datetime) and trial_end.tzinfo is None:
+        trial_end = trial_end.replace(tzinfo=timezone.utc)
+    # Auto-expire trial if past trial_end and still marked trialing
+    if sub_status == "trialing" and isinstance(trial_end, datetime):
+        if trial_end <= datetime.now(timezone.utc):
+            sub_status = "expired"
+    has_access = _has_subscription_access({**u, "subscription_status": sub_status, "trial_end": trial_end})
+    return {
+        "user_id": u["user_id"],
+        "email": u["email"],
+        "username": u["username"],
+        "name": u.get("name"),
+        "first_name": u.get("first_name"),
+        "last_name": u.get("last_name"),
+        "picture": u.get("picture"),
+        "disorders": u.get("disorders") or [],
+        "role": u.get("role") or "user",
+        "subscription_status": sub_status,
+        "trial_end": trial_end,
+        "has_access": has_access,
+    }
+
+
 @api.post("/auth/register", response_model=AuthOut)
 async def register(body: RegisterIn):
     email = body.email.lower().strip()
@@ -297,6 +360,8 @@ async def register(body: RegisterIn):
         raise HTTPException(status_code=400, detail="Email or username already taken")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     full_name = f"{first_name} {last_name}"
+    now = datetime.now(timezone.utc)
+    trial_end = now + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)
     doc = {
         "user_id": user_id,
         "email": email,
@@ -309,14 +374,17 @@ async def register(body: RegisterIn):
         "disorders": [],
         "role": "user",
         "auth_provider": "password",
-        "created_at": datetime.now(timezone.utc),
+        "created_at": now,
+        # Subscription bootstrap: every new user gets a local 7-day trial.
+        "subscription_status": "trialing",
+        "trial_start": now,
+        "trial_end": trial_end,
+        "stripe_customer_id": None,
+        "stripe_subscription_id": None,
     }
     await db.users.insert_one(doc)
     token = create_access_token(user_id, email)
-    return AuthOut(
-        access_token=token,
-        user=UserOut(**{k: doc[k] for k in ["user_id", "email", "username", "name", "first_name", "last_name", "picture", "disorders", "role"]}),
-    )
+    return AuthOut(access_token=token, user=UserOut(**_user_out_dict(doc)))
 
 
 @api.post("/auth/login", response_model=AuthOut)
@@ -325,11 +393,23 @@ async def login(body: LoginIn):
     user = await db.users.find_one({"$or": [{"email": ident}, {"username": ident}]})
     if not user or not user.get("password_hash") or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Backfill trial for legacy users that don't yet have subscription fields
+    if user.get("subscription_status") is None and (user.get("role") or "user") != "admin":
+        now = datetime.now(timezone.utc)
+        trial_end = now + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {
+                "subscription_status": "trialing",
+                "trial_start": now,
+                "trial_end": trial_end,
+            }},
+        )
+        user["subscription_status"] = "trialing"
+        user["trial_start"] = now
+        user["trial_end"] = trial_end
     token = create_access_token(user["user_id"], user["email"])
-    u = {k: user.get(k) for k in ["user_id", "email", "username", "name", "first_name", "last_name", "picture", "disorders", "role"]}
-    u["disorders"] = u.get("disorders") or []
-    u["role"] = u.get("role") or "user"
-    return AuthOut(access_token=token, user=UserOut(**u))
+    return AuthOut(access_token=token, user=UserOut(**_user_out_dict(user)))
 
 
 @api.post("/auth/google", response_model=AuthOut)
@@ -389,27 +469,14 @@ async def google_auth(body: GoogleAuthIn):
 
 @api.get("/auth/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
-    u = {k: user.get(k) for k in ["user_id", "email", "username", "name", "first_name", "last_name", "picture", "disorders", "role"]}
-    u["disorders"] = u.get("disorders") or []
-    u["role"] = u.get("role") or "user"
-    return UserOut(**u)
+    return UserOut(**_user_out_dict(user))
 
 
 @api.post("/auth/disorders", response_model=UserOut)
 async def update_disorders(body: UpdateDisordersIn, user: dict = Depends(get_current_user)):
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"disorders": body.disorders}})
     user["disorders"] = body.disorders
-    return UserOut(
-        user_id=user["user_id"],
-        email=user["email"],
-        username=user["username"],
-        name=user.get("name"),
-        first_name=user.get("first_name"),
-        last_name=user.get("last_name"),
-        picture=user.get("picture"),
-        disorders=body.disorders,
-        role=user.get("role") or "user",
-    )
+    return UserOut(**_user_out_dict(user))
 
 
 # --- Catalog ---
@@ -743,6 +810,162 @@ async def set_award_choice(body: AwardChoiceIn, user: dict = Depends(get_current
             {"user_id": user["user_id"]}, {"$set": {"choice": body.choice}}
         )
     return {"ok": True, "choice": body.choice}
+
+
+# --- Billing / Stripe subscription ---
+@api.get("/billing/status")
+async def billing_status(user: dict = Depends(get_current_user)):
+    out = _user_out_dict(user)
+    return {
+        "subscription_status": out["subscription_status"],
+        "trial_end": out["trial_end"].isoformat() if isinstance(out.get("trial_end"), datetime) else None,
+        "has_access": out["has_access"],
+        "price_usd": SUBSCRIPTION_PRICE_USD,
+        "trial_days": SUBSCRIPTION_TRIAL_DAYS,
+    }
+
+
+@api.post("/billing/checkout")
+async def billing_checkout(user: dict = Depends(get_current_user)):
+    """Return the Stripe Payment Link URL with the user's ID attached as client_reference_id."""
+    if not STRIPE_PAYMENT_LINK:
+        raise HTTPException(status_code=500, detail="Payment link not configured")
+    # Stripe Payment Links accept client_reference_id and prefilled_email query params
+    sep = "&" if "?" in STRIPE_PAYMENT_LINK else "?"
+    url = (
+        f"{STRIPE_PAYMENT_LINK}{sep}"
+        f"client_reference_id={user['user_id']}"
+        f"&prefilled_email={user['email']}"
+    )
+    return {"checkout_url": url}
+
+
+@api.post("/billing/portal")
+async def billing_portal(user: dict = Depends(get_current_user)):
+    """Open the Stripe Customer Portal so user can cancel/manage subscription."""
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No subscription yet. Start your subscription first.",
+        )
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    try:
+        session = await asyncio.to_thread(
+            stripe.billing_portal.Session.create,
+            customer=customer_id,
+            return_url=os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://mindtrack.app/"),
+        )
+        return {"portal_url": session.url}
+    except Exception as e:
+        logger = logging.getLogger("uvicorn.error")
+        logger.error(f"Stripe portal session failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not create portal session: {e}")
+
+
+async def _apply_stripe_subscription(user_id: str, sub: dict, customer_id: Optional[str] = None):
+    """Persist a Stripe subscription object onto the local user doc."""
+    status = (sub.get("status") or "").lower() or None
+    set_doc: dict = {"subscription_status": status}
+    if sub.get("id"):
+        set_doc["stripe_subscription_id"] = sub["id"]
+    if customer_id:
+        set_doc["stripe_customer_id"] = customer_id
+    # current_period_end as datetime
+    cpe = sub.get("current_period_end")
+    if cpe:
+        try:
+            set_doc["current_period_end"] = datetime.fromtimestamp(int(cpe), tz=timezone.utc)
+        except Exception:
+            pass
+    # trial_end from Stripe overrides local
+    te = sub.get("trial_end")
+    if te:
+        try:
+            set_doc["trial_end"] = datetime.fromtimestamp(int(te), tz=timezone.utc)
+        except Exception:
+            pass
+    await db.users.update_one({"user_id": user_id}, {"$set": set_doc})
+
+
+@api.post("/billing/webhook")
+async def billing_webhook(request: Request):
+    """Receive Stripe webhook events and sync subscription status."""
+    payload = await request.body()
+    sig_header = request.headers.get("Stripe-Signature") or ""
+    event = None
+    if STRIPE_WEBHOOK_SECRET:
+        try:
+            event = stripe.Webhook.construct_event(
+                payload=payload, sig_header=sig_header, secret=STRIPE_WEBHOOK_SECRET
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid signature: {e}")
+    else:
+        # No webhook secret configured yet — accept unverified events (test mode).
+        import json as _json
+        try:
+            event = _json.loads(payload.decode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid payload")
+
+    etype = event.get("type") if isinstance(event, dict) else event["type"]
+    data_obj = (event.get("data") or {}).get("object", {}) if isinstance(event, dict) else event["data"]["object"]
+
+    # Always log the event so we can debug
+    await db.stripe_events.insert_one({
+        "event_id": event.get("id") if isinstance(event, dict) else event.get("id"),
+        "type": etype,
+        "received_at": datetime.now(timezone.utc),
+    })
+
+    try:
+        if etype == "checkout.session.completed":
+            client_ref = data_obj.get("client_reference_id")
+            customer_id = data_obj.get("customer")
+            subscription_id = data_obj.get("subscription")
+            if client_ref:
+                update = {
+                    "subscription_status": "trialing" if (SUBSCRIPTION_TRIAL_DAYS or 0) > 0 else "active",
+                }
+                if customer_id:
+                    update["stripe_customer_id"] = customer_id
+                if subscription_id:
+                    update["stripe_subscription_id"] = subscription_id
+                await db.users.update_one({"user_id": client_ref}, {"$set": update})
+                if subscription_id and STRIPE_SECRET_KEY:
+                    try:
+                        sub = await asyncio.to_thread(stripe.Subscription.retrieve, subscription_id)
+                        await _apply_stripe_subscription(client_ref, sub, customer_id)
+                    except Exception:
+                        pass
+        elif etype in ("customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"):
+            customer_id = data_obj.get("customer")
+            user = await db.users.find_one({"stripe_customer_id": customer_id})
+            if user:
+                if etype == "customer.subscription.deleted":
+                    await db.users.update_one(
+                        {"user_id": user["user_id"]},
+                        {"$set": {"subscription_status": "canceled"}},
+                    )
+                else:
+                    await _apply_stripe_subscription(user["user_id"], data_obj, customer_id)
+        elif etype == "invoice.payment_failed":
+            customer_id = data_obj.get("customer")
+            user = await db.users.find_one({"stripe_customer_id": customer_id})
+            if user:
+                await db.users.update_one(
+                    {"user_id": user["user_id"]},
+                    {"$set": {"subscription_status": "past_due"}},
+                )
+    except Exception as e:
+        logger = logging.getLogger("uvicorn.error")
+        logger.error(f"Webhook handler error for {etype}: {e}")
+
+    return {"received": True}
+
+
 
 
 # --- Music (admin-uploaded) ---

@@ -206,3 +206,50 @@ agent_communication:
 
   - agent: "testing"
     message: "All 3 new/updated backend endpoints PASSED (7/7 scenarios). Journal today-context returns correct empty-state & populated-state shape. POST /api/journal correctly links BOTH today's symptoms (Restless, Low mood) AND latest energy (72%) into linked_symptoms + linked_energy_percent, and GET /api/journal surfaces them. POST /api/reports/send reached Resend and returned the EXPECTED test-mode restriction ('You can only send testing emails to your own email address: nekorinstudios@gmail.com'); server correctly surfaced this as HTTP 502 with detail intact. Integration is verified correct — actual delivery needs either a verified domain or using the account owner's email."
+
+backend:
+  - task: "Stripe subscription: register adds first/last name + auto-trial"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "RegisterIn now requires non-empty first_name + last_name. Login backfills trial_end (now+7d) for legacy users. /auth/me, /auth/login, /auth/register, /auth/disorders all now return subscription_status, trial_end, has_access via shared _user_out_dict helper. Reports now use first+last name for the subject and recipient block via _display_name helper."
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED 4/4 sub-scenarios. (S1) POST /api/auth/register {first_name:'Jordan', last_name:'Lee', ...} → HTTP 200 with access_token + user.first_name='Jordan', last_name='Lee', name='Jordan Lee', subscription_status='trialing', has_access=true, trial_end exactly 7.00 days out (ISO 8601). (S2) POST same body WITHOUT first_name → HTTP 422 Pydantic 'Field required'. (S3) POST first_name:'' → HTTP 400 detail 'First name is required'. (S4) GET /api/auth/me with token → HTTP 200, same full shape (first_name='Jordan', last_name='Lee', name='Jordan Lee', subscription_status='trialing', has_access=true, trial_end ~7d). All checks pass."
+
+  - task: "Stripe billing endpoints"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added 4 endpoints: (1) GET /api/billing/status returns {subscription_status, trial_end, has_access, price_usd, trial_days}. (2) POST /api/billing/checkout returns {checkout_url} which is the Stripe Payment Link with client_reference_id + prefilled_email query params attached. (3) POST /api/billing/portal calls stripe.billing_portal.Session.create (requires stripe_customer_id on user). (4) POST /api/billing/webhook accepts Stripe events: checkout.session.completed (links user via client_reference_id and persists customer/subscription IDs), customer.subscription.created/updated/deleted (syncs status), invoice.payment_failed (marks past_due). STRIPE_WEBHOOK_SECRET is currently empty — when blank, webhook accepts unverified JSON (acceptable for initial setup before webhook endpoint is configured). All events also recorded in db.stripe_events."
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED 6/6 sub-scenarios. (S5) GET /api/billing/status → HTTP 200 {subscription_status:'trialing', trial_end:'2026-05-29T03:44:49.561000+00:00', has_access:true, price_usd:'1.99', trial_days:7} — exact shape. (S6) POST /api/billing/checkout → HTTP 200 with checkout_url='https://buy.stripe.com/fZu7sK4Nj96b0qn6nI0Ny02?client_reference_id=user_16f0f57eee0e&prefilled_email=jordan_fb087e1efa@test.dev' — starts with correct payment link AND contains both client_reference_id (user_id from S1) AND prefilled_email (email from S1). (S7) POST /api/billing/portal w/o stripe_customer_id → HTTP 400 detail='No subscription yet. Start your subscription first.' (S8a) POST /api/billing/webhook with raw JSON {type:'checkout.session.completed', data.object.client_reference_id, customer:'cus_test123', subscription:'sub_test456'} WITHOUT Stripe-Signature header → HTTP 200 {received:true}. (S8b) GET /api/auth/me after webhook → subscription_status still 'trialing' (correct — user was already trialing). (S8c) POST /api/billing/portal after webhook → HTTP 502 'No such customer: cus_test123' from Stripe (correct: portal NO LONGER returns 'No subscription yet' because stripe_customer_id was persisted by the webhook; it actually reached Stripe and Stripe rejected the fake customer). End-to-end webhook customer-linking confirmed working."
+
+
+metadata:
+  test_sequence: 4
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Please test the new billing + signup flow. Scenarios: (1) POST /api/auth/register with body {email, username, password, first_name='Jordan', last_name='Lee'} → expect 200, response.user must include first_name, last_name, name='Jordan Lee', subscription_status='trialing', trial_end (~7 days from now in ISO format), has_access=true. (2) POST /api/auth/register WITHOUT first_name → expect 422 (Pydantic validation). (3) WITH empty first_name → expect 400 'First name is required'. (4) GET /api/auth/me → same shape as register. (5) GET /api/billing/status as logged-in user → expect {subscription_status:'trialing', has_access:true, price_usd:'1.99', trial_days:7}. (6) POST /api/billing/checkout → expect {checkout_url} that starts with 'https://buy.stripe.com/fZu7sK4Nj96b0qn6nI0Ny02' and contains 'client_reference_id=user_...' and 'prefilled_email=...'. (7) POST /api/billing/portal as user with NO stripe_customer_id → expect 400 'No subscription yet'. (8) POST /api/billing/webhook with body {type:'checkout.session.completed', data:{object:{client_reference_id:<user_id>, customer:'cus_test123', subscription:'sub_test456'}}} (no Stripe-Signature header — server should accept since STRIPE_WEBHOOK_SECRET is empty) → expect 200 {received:true} and the user's stripe_customer_id should be updated to 'cus_test123' in db. Do NOT test frontend."
+  - agent: "testing"
+    message: "ALL 8 SCENARIOS PASS (10/10 sub-checks). (1) POST /api/auth/register {first_name:'Jordan', last_name:'Lee'} → 200 with access_token + user.{first_name,last_name,name='Jordan Lee', subscription_status='trialing', has_access=true, trial_end=now+7.00d ISO}. (2) Missing first_name → 422 Pydantic 'Field required'. (3) Empty first_name → 400 'First name is required'. (4) GET /api/auth/me echoes the full subscription shape correctly. (5) GET /api/billing/status → 200 {subscription_status:'trialing', trial_end ISO, has_access:true, price_usd:'1.99', trial_days:7}. (6) POST /api/billing/checkout → 200 with checkout_url='https://buy.stripe.com/fZu7sK4Nj96b0qn6nI0Ny02?client_reference_id=user_16f0f57eee0e&prefilled_email=jordan_fb087e1efa@test.dev' — perfectly formed. (7) POST /api/billing/portal w/o stripe_customer_id → 400 'No subscription yet. Start your subscription first.' (8a) POST /api/billing/webhook with raw JSON (no Stripe-Signature, STRIPE_WEBHOOK_SECRET empty) → 200 {received:true}. (8b) /auth/me still trialing afterwards (correct — already trialing). (8c) /billing/portal after webhook now returns Stripe 502 'No such customer: cus_test123' instead of 'No subscription yet' — confirming webhook successfully persisted stripe_customer_id='cus_test123' onto the user. All Stripe + first/last name flows working end-to-end. No code fixes needed."

@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ImageBackground } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ImageBackground, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth";
@@ -39,6 +39,11 @@ export default function Landing() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.content}>
           <View style={styles.hero}>
+            <Image
+              source={require("../assets/mindtrack-logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
             <Text style={styles.brand}>MindTrack</Text>
             <Text style={styles.tagline}>
               Daily wellness tracking for ADHD, Bipolar & Autism.
@@ -74,9 +79,10 @@ const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: COLORS.bg },
   safe: { flex: 1 },
   content: { flex: 1, padding: 24, justifyContent: "space-between" },
-  hero: { marginTop: 48 },
-  brand: { fontSize: 44, fontWeight: "800", color: COLORS.text, letterSpacing: -1 },
-  tagline: { marginTop: 12, fontSize: 18, color: COLORS.text2, lineHeight: 26 },
+  hero: { marginTop: 48, alignItems: "center" },
+  logo: { width: 140, height: 140, marginBottom: 12 },
+  brand: { fontSize: 44, fontWeight: "800", color: COLORS.text, letterSpacing: -1, textAlign: "center" },
+  tagline: { marginTop: 12, fontSize: 18, color: COLORS.text2, lineHeight: 26, textAlign: "center" },
   actions: { gap: 12, marginBottom: 24 },
   primary: {
     backgroundColor: "#0B0B0B",

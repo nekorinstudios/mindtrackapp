@@ -11,6 +11,9 @@ export type User = {
   picture?: string | null;
   disorders: string[];
   role: string;
+  subscription_status?: string | null;
+  trial_end?: string | null;
+  has_access?: boolean;
 };
 
 type AuthCtx = {

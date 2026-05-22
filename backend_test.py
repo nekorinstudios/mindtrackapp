@@ -1,158 +1,266 @@
-"""Backend tests for MindTrack focus areas:
-1. GET /api/journal/today-context
-2. POST /api/journal (same-day linking)
-3. POST /api/reports/send (Resend integration)
+"""
+Backend test for MindTrack Stripe subscription + first/last name flow.
+Tests the 8 scenarios in the review request.
 """
 import os
-import sys
 import json
 import uuid
 import requests
+from datetime import datetime, timezone, timedelta
 
-BASE = os.environ.get("BACKEND_URL", "https://symptom-journal-12.preview.emergentagent.com").rstrip("/")
-API = BASE + "/api"
+BASE_URL = "https://symptom-journal-12.preview.emergentagent.com/api"
 
-results = []
+def _rand():
+    return uuid.uuid4().hex[:10]
 
-def log(name, ok, detail=""):
-    status = "PASS" if ok else "FAIL"
-    print(f"[{status}] {name} :: {detail}")
-    results.append({"name": name, "ok": ok, "detail": detail})
+def _print(label, r):
+    body_snip = r.text[:400]
+    print(f"[{label}] HTTP {r.status_code} :: {body_snip}")
 
+results = {}
 
-def register_user():
-    suffix = uuid.uuid4().hex[:8]
-    email = f"jamie.test.{suffix}@example.com"
-    username = f"jamie_{suffix}"
-    payload = {
-        "email": email,
-        "username": username,
-        "password": "Strong#Pass123",
-        "name": "Jamie Tester",
-    }
-    r = requests.post(f"{API}/auth/register", json=payload, timeout=20)
-    r.raise_for_status()
-    data = r.json()
-    return data["access_token"], data["user"], payload
+def record(name, ok, detail=""):
+    results[name] = {"ok": ok, "detail": detail}
+    flag = "PASS" if ok else "FAIL"
+    print(f"  -> {flag}: {name} :: {detail}\n")
 
+# ----------------------------------------------------------------------------
+# Scenario 1: Register WITH first_name + last_name
+# ----------------------------------------------------------------------------
+email1 = f"jordan_{_rand()}@test.dev"
+username1 = f"jordan_{_rand()}"
+body1 = {
+    "email": email1,
+    "username": username1,
+    "password": "secret6",
+    "first_name": "Jordan",
+    "last_name": "Lee",
+}
+print("\n=== Scenario 1: register WITH first/last name ===")
+r1 = requests.post(f"{BASE_URL}/auth/register", json=body1, timeout=30)
+_print("S1 register", r1)
 
-def main():
-    print(f"BASE = {BASE}")
-    token, user, creds = register_user()
-    h = {"Authorization": f"Bearer {token}"}
-    print(f"Registered: {user.get('email')} / {user.get('user_id')}")
-
-    # 1a. today-context fresh
-    r = requests.get(f"{API}/journal/today-context", headers=h, timeout=20)
-    ok = r.status_code == 200
-    body = r.json() if ok else r.text
-    log(
-        "1a today-context fresh user",
-        ok and body.get("symptoms") == [] and body.get("energy_percent") is None,
-        f"status={r.status_code} body={body}",
-    )
-
-    # 1b. log energy + symptoms then verify
-    r2 = requests.post(f"{API}/energy/log", headers=h, json={"percent": 72}, timeout=20)
-    log("1b POST /energy/log", r2.status_code == 200, f"status={r2.status_code} body={r2.text[:200]}")
-
-    r3 = requests.post(
-        f"{API}/symptoms/log",
-        headers=h,
-        json={"symptoms": ["Restless", "Low mood"]},
-        timeout=20,
-    )
-    log("1b POST /symptoms/log", r3.status_code == 200, f"status={r3.status_code} body={r3.text[:200]}")
-
-    r4 = requests.get(f"{API}/journal/today-context", headers=h, timeout=20)
-    body4 = r4.json() if r4.ok else r4.text
-    sset = set(body4.get("symptoms") or []) if isinstance(body4, dict) else set()
-    log(
-        "1b today-context after logs",
-        r4.status_code == 200
-        and {"Restless", "Low mood"}.issubset(sset)
-        and body4.get("energy_percent") == 72,
-        f"status={r4.status_code} body={body4}",
-    )
-
-    # 2. POST /api/journal
-    r5 = requests.post(f"{API}/journal", headers=h, json={"text": "test entry"}, timeout=20)
-    body5 = r5.json() if r5.ok else r5.text
-    if isinstance(body5, dict):
-        ls = set(body5.get("linked_symptoms") or [])
-        ok5 = (
-            r5.status_code == 200
-            and {"Restless", "Low mood"}.issubset(ls)
-            and body5.get("linked_energy_percent") == 72
-            and body5.get("entry_id")
-            and body5.get("text") == "test entry"
-            and isinstance(body5.get("timestamp"), str)
-        )
+token1 = None
+user1 = None
+user_id1 = None
+if r1.status_code == 200:
+    j = r1.json()
+    token1 = j.get("access_token")
+    user1 = j.get("user") or {}
+    user_id1 = user1.get("user_id")
+    checks = []
+    checks.append(("access_token present", bool(token1)))
+    checks.append(("user.first_name=='Jordan'", user1.get("first_name") == "Jordan"))
+    checks.append(("user.last_name=='Lee'", user1.get("last_name") == "Lee"))
+    checks.append(("user.name=='Jordan Lee'", user1.get("name") == "Jordan Lee"))
+    checks.append(("user.subscription_status=='trialing'", user1.get("subscription_status") == "trialing"))
+    checks.append(("user.has_access==True", user1.get("has_access") is True))
+    trial_end_str = user1.get("trial_end")
+    te_ok = False
+    if trial_end_str:
+        try:
+            te = datetime.fromisoformat(trial_end_str.replace("Z", "+00:00"))
+            delta_days = (te - datetime.now(timezone.utc)).total_seconds() / 86400
+            te_ok = 6.5 <= delta_days <= 7.5
+            checks.append((f"trial_end ~7d from now (got {delta_days:.2f}d)", te_ok))
+        except Exception as e:
+            checks.append((f"trial_end parse error: {e}", False))
     else:
-        ok5 = False
-    log("2 POST /journal linking", ok5, f"status={r5.status_code} body={body5}")
+        checks.append(("trial_end present", False))
+    all_ok = all(ok for _, ok in checks)
+    record("Scenario 1 (register w/ first+last name)", all_ok, "; ".join(f"{k}={v}" for k, v in checks))
+else:
+    record("Scenario 1 (register w/ first+last name)", False, f"HTTP {r1.status_code}: {r1.text[:200]}")
 
-    # GET /api/journal contains the entry with linked fields
-    r6 = requests.get(f"{API}/journal", headers=h, timeout=20)
-    body6 = r6.json() if r6.ok else r6.text
-    found = None
-    if isinstance(body6, list):
-        for e in body6:
-            if e.get("entry_id") == (body5.get("entry_id") if isinstance(body5, dict) else None):
-                found = e
-                break
-    ok6 = bool(found) and {"Restless", "Low mood"}.issubset(set(found.get("linked_symptoms") or [])) and found.get("linked_energy_percent") == 72
-    log("2 GET /journal entry visible with linked fields", ok6, f"found={found}")
+# ----------------------------------------------------------------------------
+# Scenario 2: Register WITHOUT first_name field → expect 422
+# ----------------------------------------------------------------------------
+print("\n=== Scenario 2: register WITHOUT first_name ===")
+body2 = {
+    "email": f"noFn_{_rand()}@test.dev",
+    "username": f"nofn_{_rand()}",
+    "password": "secret6",
+    "last_name": "Lee",
+}
+r2 = requests.post(f"{BASE_URL}/auth/register", json=body2, timeout=30)
+_print("S2 register no first_name", r2)
+record("Scenario 2 (missing first_name -> 422)", r2.status_code == 422, f"got HTTP {r2.status_code}")
 
-    # 3. POST /api/reports/send
-    r7 = requests.post(
-        f"{API}/reports/send",
-        headers=h,
-        json={"doctor_email": "test@example.com", "days": 30},
-        timeout=60,
-    )
+# ----------------------------------------------------------------------------
+# Scenario 3: Register with empty first_name -> 400
+# ----------------------------------------------------------------------------
+print("\n=== Scenario 3: register with empty first_name ===")
+body3 = {
+    "email": f"empty_{_rand()}@test.dev",
+    "username": f"empty_{_rand()}",
+    "password": "secret6",
+    "first_name": "",
+    "last_name": "Lee",
+}
+r3 = requests.post(f"{BASE_URL}/auth/register", json=body3, timeout=30)
+_print("S3 register empty first_name", r3)
+detail3 = ""
+try:
+    detail3 = r3.json().get("detail", "")
+except Exception:
+    detail3 = r3.text
+ok3 = r3.status_code == 400 and "First name is required" in detail3
+record("Scenario 3 (empty first_name -> 400)", ok3, f"HTTP {r3.status_code}, detail='{detail3}'")
+
+# ----------------------------------------------------------------------------
+# Scenario 4: GET /api/auth/me using token from scenario 1
+# ----------------------------------------------------------------------------
+print("\n=== Scenario 4: GET /api/auth/me ===")
+if token1:
+    r4 = requests.get(f"{BASE_URL}/auth/me", headers={"Authorization": f"Bearer {token1}"}, timeout=30)
+    _print("S4 /auth/me", r4)
+    if r4.status_code == 200:
+        u = r4.json()
+        checks = [
+            ("first_name=='Jordan'", u.get("first_name") == "Jordan"),
+            ("last_name=='Lee'", u.get("last_name") == "Lee"),
+            ("name=='Jordan Lee'", u.get("name") == "Jordan Lee"),
+            ("subscription_status=='trialing'", u.get("subscription_status") == "trialing"),
+            ("has_access==True", u.get("has_access") is True),
+        ]
+        te = u.get("trial_end")
+        te_ok = False
+        if te:
+            try:
+                tedt = datetime.fromisoformat(te.replace("Z", "+00:00"))
+                d = (tedt - datetime.now(timezone.utc)).total_seconds() / 86400
+                te_ok = 6.5 <= d <= 7.5
+                checks.append((f"trial_end ~7d (got {d:.2f}d)", te_ok))
+            except Exception as e:
+                checks.append((f"trial_end parse err {e}", False))
+        all_ok = all(ok for _, ok in checks)
+        record("Scenario 4 (/auth/me)", all_ok, "; ".join(f"{k}={v}" for k, v in checks))
+    else:
+        record("Scenario 4 (/auth/me)", False, f"HTTP {r4.status_code}: {r4.text[:200]}")
+else:
+    record("Scenario 4 (/auth/me)", False, "skipped - no token from S1")
+
+# ----------------------------------------------------------------------------
+# Scenario 5: GET /api/billing/status
+# ----------------------------------------------------------------------------
+print("\n=== Scenario 5: GET /api/billing/status ===")
+if token1:
+    r5 = requests.get(f"{BASE_URL}/billing/status", headers={"Authorization": f"Bearer {token1}"}, timeout=30)
+    _print("S5 /billing/status", r5)
+    if r5.status_code == 200:
+        b = r5.json()
+        checks = [
+            ("subscription_status=='trialing'", b.get("subscription_status") == "trialing"),
+            ("has_access==True", b.get("has_access") is True),
+            ("price_usd=='1.99'", str(b.get("price_usd")) == "1.99"),
+            ("trial_days==7", b.get("trial_days") == 7),
+            ("trial_end is ISO string", isinstance(b.get("trial_end"), str) and "T" in (b.get("trial_end") or "")),
+        ]
+        all_ok = all(ok for _, ok in checks)
+        record("Scenario 5 (/billing/status)", all_ok, "; ".join(f"{k}={v}" for k, v in checks))
+    else:
+        record("Scenario 5 (/billing/status)", False, f"HTTP {r5.status_code}: {r5.text[:200]}")
+else:
+    record("Scenario 5 (/billing/status)", False, "skipped - no token")
+
+# ----------------------------------------------------------------------------
+# Scenario 6: POST /api/billing/checkout
+# ----------------------------------------------------------------------------
+print("\n=== Scenario 6: POST /api/billing/checkout ===")
+if token1:
+    r6 = requests.post(f"{BASE_URL}/billing/checkout", headers={"Authorization": f"Bearer {token1}"}, timeout=30)
+    _print("S6 /billing/checkout", r6)
+    if r6.status_code == 200:
+        url = (r6.json() or {}).get("checkout_url", "")
+        checks = [
+            ("starts with stripe payment link", url.startswith("https://buy.stripe.com/fZu7sK4Nj96b0qn6nI0Ny02")),
+            (f"contains client_reference_id={user_id1}", f"client_reference_id={user_id1}" in url),
+            (f"contains prefilled_email={email1}", f"prefilled_email={email1}" in url),
+        ]
+        all_ok = all(ok for _, ok in checks)
+        record("Scenario 6 (/billing/checkout)", all_ok, f"url='{url}' :: " + "; ".join(f"{k}={v}" for k, v in checks))
+    else:
+        record("Scenario 6 (/billing/checkout)", False, f"HTTP {r6.status_code}: {r6.text[:200]}")
+else:
+    record("Scenario 6 (/billing/checkout)", False, "skipped - no token")
+
+# ----------------------------------------------------------------------------
+# Scenario 7: POST /api/billing/portal — no stripe_customer_id -> 400
+# ----------------------------------------------------------------------------
+print("\n=== Scenario 7: POST /api/billing/portal (no customer yet) ===")
+if token1:
+    r7 = requests.post(f"{BASE_URL}/billing/portal", headers={"Authorization": f"Bearer {token1}"}, timeout=30)
+    _print("S7 /billing/portal", r7)
+    detail7 = ""
     try:
-        body7 = r7.json()
+        detail7 = r7.json().get("detail", "")
     except Exception:
-        body7 = r7.text
-    print(f"reports/send raw status={r7.status_code} body={body7}")
-    ok7_status = r7.status_code in (200, 502)
-    ok7 = False
-    note = ""
-    if r7.status_code == 200 and isinstance(body7, dict):
-        st = body7.get("status")
-        ok7 = (
-            body7.get("ok") is True
-            and isinstance(body7.get("report_id"), str)
-            and body7["report_id"].startswith("rep_")
-            and body7.get("doctor_email") == "test@example.com"
-            and isinstance(body7.get("symptom_entries"), int)
-            and isinstance(body7.get("energy_entries"), int)
-            and isinstance(body7.get("medicine_entries"), int)
-            and isinstance(body7.get("journal_entries"), int)
-            and st in ("sent", "not_configured")
-        )
-        if st == "sent":
-            ok7 = ok7 and isinstance(body7.get("resend_id"), str) and len(body7["resend_id"]) > 0
-        note = f"status={st} resend_id={body7.get('resend_id')}"
-    elif r7.status_code == 502 and isinstance(body7, dict):
-        detail = body7.get("detail", "")
-        # Expected test-mode restriction
-        if "testing emails" in detail or "verify a domain" in detail or "own email address" in detail:
-            note = f"EXPECTED Resend test-mode restriction: {detail}"
-            ok7 = True  # request DID reach Resend
-        else:
-            note = f"Unexpected 502: {detail}"
-    log("3 POST /reports/send", ok7, f"http={r7.status_code} {note}")
+        detail7 = r7.text
+    ok7 = r7.status_code == 400 and detail7.startswith("No subscription yet")
+    record("Scenario 7 (/billing/portal w/o customer -> 400)", ok7,
+           f"HTTP {r7.status_code}, detail='{detail7}'")
+else:
+    record("Scenario 7 (/billing/portal w/o customer -> 400)", False, "skipped - no token")
 
-    # Summary
-    print("\n=== SUMMARY ===")
-    n_ok = sum(1 for r in results if r["ok"])
-    print(f"{n_ok}/{len(results)} passed")
-    for r in results:
-        print(f" - [{'OK' if r['ok'] else 'FAIL'}] {r['name']}")
-    sys.exit(0 if n_ok == len(results) else 1)
+# ----------------------------------------------------------------------------
+# Scenario 8: POST /api/billing/webhook (no signature, no secret)
+# ----------------------------------------------------------------------------
+print("\n=== Scenario 8: POST /api/billing/webhook (no signature, no secret) ===")
+if user_id1:
+    webhook_payload = {
+        "id": "evt_test_1",
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "client_reference_id": user_id1,
+                "customer": "cus_test123",
+                "subscription": "sub_test456",
+            }
+        },
+    }
+    r8 = requests.post(
+        f"{BASE_URL}/billing/webhook",
+        data=json.dumps(webhook_payload),
+        headers={"Content-Type": "application/json"},
+        timeout=30,
+    )
+    _print("S8 /billing/webhook", r8)
+    received_ok = False
+    if r8.status_code == 200:
+        try:
+            received_ok = r8.json().get("received") is True
+        except Exception:
+            pass
+    record("Scenario 8a (webhook returns {received:true})", received_ok,
+           f"HTTP {r8.status_code}, body={r8.text[:200]}")
 
+    # 8b: GET /api/auth/me — still trialing
+    if token1:
+        r8b = requests.get(f"{BASE_URL}/auth/me", headers={"Authorization": f"Bearer {token1}"}, timeout=30)
+        _print("S8b /auth/me after webhook", r8b)
+        still_trialing = r8b.status_code == 200 and r8b.json().get("subscription_status") == "trialing"
+        record("Scenario 8b (/auth/me still trialing)", still_trialing,
+               f"subscription_status={r8b.json().get('subscription_status') if r8b.status_code == 200 else 'n/a'}")
 
-if __name__ == "__main__":
-    main()
+        # 8c: POST /api/billing/portal — should NOT be 'No subscription yet' now
+        r8c = requests.post(f"{BASE_URL}/billing/portal", headers={"Authorization": f"Bearer {token1}"}, timeout=30)
+        _print("S8c /billing/portal after webhook", r8c)
+        det8c = ""
+        try:
+            det8c = r8c.json().get("detail", "")
+        except Exception:
+            det8c = r8c.text
+        no_longer_missing = not det8c.startswith("No subscription yet")
+        record("Scenario 8c (/billing/portal no longer 'No subscription yet')", no_longer_missing,
+               f"HTTP {r8c.status_code}, detail='{det8c[:200]}'")
+else:
+    record("Scenario 8 (webhook)", False, "skipped - no user_id from S1")
+
+# ----------------------------------------------------------------------------
+print("\n\n================ SUMMARY ================")
+passes = sum(1 for v in results.values() if v["ok"])
+fails = sum(1 for v in results.values() if not v["ok"])
+for name, v in results.items():
+    flag = "PASS" if v["ok"] else "FAIL"
+    print(f"  {flag}: {name}")
+print(f"\nTotal: {passes} passed, {fails} failed of {len(results)}")
