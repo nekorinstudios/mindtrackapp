@@ -6,412 +6,546 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
+  ImageSourcePropType,
+  Alert,
 } from "react-native";
 import Svg, {
   Circle,
   Ellipse,
   G,
-  Line,
   Path,
   Rect,
-  Text as SvgText,
+  Defs,
+  LinearGradient,
+  Stop,
 } from "react-native-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { api, COLORS } from "../../src/api";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { api, COLORS, formatApiError } from "../../src/api";
 
-type Progress = { choice: string; count: number; goal: number };
+type Status = "picking" | "in_progress" | "ready_to_claim";
+type Progress = {
+  choice: string | null;
+  points: number;
+  goal: number;
+  status: Status;
+};
 
-const PETAL_COLORS = [
-  "#FF6B6B",
-  "#FFD93D",
-  "#F472B6",
-  "#A78BFA",
-  "#34D399",
-  "#60A5FA",
-  "#FB923C",
-  "#FACC15",
-];
-const CANDY_COLORS = [
-  "#FF6B6B",
-  "#FFD93D",
-  "#F472B6",
-  "#A78BFA",
-  "#34D399",
-  "#60A5FA",
-  "#FB923C",
-];
-const STAMP_COLORS = ["#3BD16F", "#3B82F6", "#F472B6", "#A78BFA", "#FB923C", "#EF4444"];
+type PrizeKey = "flowers" | "candy" | "giftcard" | "treasure_chest";
 
-function CartoonVase({ count, mini = false }: { count: number; mini?: boolean }) {
-  const max = 30;
-  const n = Math.max(0, Math.min(count, max));
-  return (
-    <Svg width="100%" height="100%" viewBox="0 0 240 280" preserveAspectRatio="xMidYMid meet">
-      {/* Flowers — drawn first so vase covers stems */}
-      {Array.from({ length: n }).map((_, i) => {
-        const cols = 6;
-        const row = Math.floor(i / cols);
-        const col = i % cols;
-        const x = 70 + col * 18 + ((row % 2) * 9);
-        const y = 100 - row * 18;
-        const c = PETAL_COLORS[i % PETAL_COLORS.length];
-        return (
-          <G key={`f-${i}`}>
-            <Line x1={x} y1={140} x2={x} y2={y + 6} stroke="#2BBF8A" strokeWidth={2.5} />
-            <Circle cx={x - 6} cy={y} r={5.5} fill={c} stroke="#0B0B0B" strokeWidth={1} />
-            <Circle cx={x + 6} cy={y} r={5.5} fill={c} stroke="#0B0B0B" strokeWidth={1} />
-            <Circle cx={x - 3} cy={y - 6} r={5.5} fill={c} stroke="#0B0B0B" strokeWidth={1} />
-            <Circle cx={x + 3} cy={y - 6} r={5.5} fill={c} stroke="#0B0B0B" strokeWidth={1} />
-            <Circle cx={x} cy={y + 5} r={5.5} fill={c} stroke="#0B0B0B" strokeWidth={1} />
-            <Circle cx={x} cy={y - 1} r={3.5} fill="#FFD93D" stroke="#0B0B0B" strokeWidth={1} />
-          </G>
-        );
-      })}
+// Flower image set — one per 25-point tier
+const FLOWER_IMAGES: Record<number, ImageSourcePropType> = {
+  0: require("../../assets/prizes/flowers/0.png"),
+  25: require("../../assets/prizes/flowers/25.png"),
+  50: require("../../assets/prizes/flowers/50.png"),
+  75: require("../../assets/prizes/flowers/75.png"),
+  100: require("../../assets/prizes/flowers/100.png"),
+};
 
-      {/* Vase body */}
-      <Path
-        d="M62 140 C 62 122 50 116 70 100 H 170 C 190 116 178 122 178 140 C 178 200 198 220 168 250 C 138 270 102 270 72 250 C 42 220 62 200 62 140 Z"
-        fill="#FACC15"
-        stroke="#0B0B0B"
-        strokeWidth={3}
-        strokeLinejoin="round"
-      />
-      {/* Vase mouth lip */}
-      <Path
-        d="M70 100 H 170"
-        stroke="#0B0B0B"
-        strokeWidth={3}
-        strokeLinecap="round"
-      />
-      <Ellipse cx={120} cy={100} rx={50} ry={6} fill="#FFE57F" stroke="#0B0B0B" strokeWidth={2} />
-      {/* Highlight */}
-      <Path
-        d="M82 160 C 78 190 82 215 95 235"
-        stroke="#FFFFFF"
-        strokeWidth={6}
-        strokeLinecap="round"
-        fill="none"
-        opacity={0.7}
-      />
-
-      {!mini && (
-        <SvgText
-          x={120}
-          y={266}
-          textAnchor="middle"
-          fontSize={10}
-          fontWeight="800"
-          fill="#0B0B0B"
-        >
-          {n}/30 flowers
-        </SvgText>
-      )}
-    </Svg>
-  );
+function flowerImageForPoints(points: number): ImageSourcePropType {
+  if (points >= 100) return FLOWER_IMAGES[100];
+  if (points >= 75) return FLOWER_IMAGES[75];
+  if (points >= 50) return FLOWER_IMAGES[50];
+  if (points >= 25) return FLOWER_IMAGES[25];
+  return FLOWER_IMAGES[0];
 }
 
-function CartoonJar({ count, mini = false }: { count: number; mini?: boolean }) {
-  const max = 30;
-  const n = Math.max(0, Math.min(count, max));
-  return (
-    <Svg width="100%" height="100%" viewBox="0 0 240 280" preserveAspectRatio="xMidYMid meet">
-      {/* Lid base */}
-      <Rect x={56} y={26} width={128} height={28} rx={6} fill="#3B82F6" stroke="#0B0B0B" strokeWidth={3} />
-      {/* Lid top ring */}
-      <Rect x={62} y={20} width={116} height={12} rx={4} fill="#1D4ED8" stroke="#0B0B0B" strokeWidth={3} />
-      {/* Jar body — glass */}
-      <Path
-        d="M50 60 V 230 C 50 258 190 258 190 230 V 60 Z"
-        fill="#E5EFFE"
-        stroke="#0B0B0B"
-        strokeWidth={3}
-        opacity={0.92}
-      />
-      {/* Neck rim */}
-      <Path d="M50 60 H 190" stroke="#0B0B0B" strokeWidth={3} />
-      {/* Candies stacked from the bottom */}
-      {Array.from({ length: n }).map((_, i) => {
-        const cols = 5;
-        const row = Math.floor(i / cols);
-        const col = i % cols;
-        const x = 72 + col * 22 + ((row % 2) * 11);
-        const y = 232 - row * 18;
-        const c = CANDY_COLORS[i % CANDY_COLORS.length];
-        const rot = ((i * 37) % 60) - 30;
-        return (
-          <G key={`c-${i}`} transform={`rotate(${rot} ${x} ${y})`}>
-            <Path
-              d={`M${x - 16} ${y - 3} L${x - 10} ${y} L${x - 16} ${y + 3} Z`}
-              fill={c}
-              stroke="#0B0B0B"
-              strokeWidth={1.2}
-            />
-            <Path
-              d={`M${x + 16} ${y - 3} L${x + 10} ${y} L${x + 16} ${y + 3} Z`}
-              fill={c}
-              stroke="#0B0B0B"
-              strokeWidth={1.2}
-            />
-            <Ellipse cx={x} cy={y} rx={10} ry={6} fill={c} stroke="#0B0B0B" strokeWidth={1.5} />
-            <Path
-              d={`M${x - 5} ${y - 2} Q ${x} ${y - 4} ${x + 5} ${y - 2}`}
-              stroke="#FFFFFF"
-              strokeWidth={1.2}
-              fill="none"
-              opacity={0.7}
-            />
-          </G>
-        );
-      })}
-      {/* Glass highlight */}
-      <Path
-        d="M62 80 V 220"
-        stroke="#FFFFFF"
-        strokeWidth={5}
-        strokeLinecap="round"
-        opacity={0.7}
-      />
-      <SvgText x={120} y={44} textAnchor="middle" fontSize={11} fontWeight="800" fill="#FFFFFF">
-        CANDY
-      </SvgText>
-      {!mini && (
-        <SvgText
-          x={120}
-          y={272}
-          textAnchor="middle"
-          fontSize={10}
-          fontWeight="800"
-          fill="#0B0B0B"
-        >
-          {n}/30 candies
-        </SvgText>
-      )}
-    </Svg>
-  );
-}
+const PRIZE_META: Record<
+  PrizeKey,
+  { label: string; subtitle: string; deliveryHint: string }
+> = {
+  flowers: {
+    label: "Flower Bouquet",
+    subtitle: "A fresh bouquet of flowers",
+    deliveryHint: "Delivered to your address by mail",
+  },
+  candy: {
+    label: "Jar of Candy",
+    subtitle: "A sweet jar full of candy",
+    deliveryHint: "Shipped right to your door",
+  },
+  giftcard: {
+    label: "Envelope Surprise",
+    subtitle: "A surprise envelope with goodies",
+    deliveryHint: "Sent by post — let it be a surprise",
+  },
+  treasure_chest: {
+    label: "Treasure Chest",
+    subtitle: "A keepsake chest of small gifts",
+    deliveryHint: "Mailed directly to you",
+  },
+};
 
-function CartoonEnvelope({ count, mini = false }: { count: number; mini?: boolean }) {
-  const max = 30;
-  const n = Math.max(0, Math.min(count, max));
-  return (
-    <Svg width="100%" height="100%" viewBox="0 0 240 280" preserveAspectRatio="xMidYMid meet">
-      {/* Envelope body */}
-      <Rect x={26} y={70} width={188} height={150} rx={10} fill="#FFE57F" stroke="#0B0B0B" strokeWidth={3} />
-      {/* Bottom fold lines */}
-      <Path d="M26 220 L120 150 L214 220" stroke="#0B0B0B" strokeWidth={2.5} fill="none" />
-      {/* Closed flap */}
-      <Path d="M26 70 L120 158 L214 70 Z" fill="#FCD34D" stroke="#0B0B0B" strokeWidth={3} />
-      {/* Wax seal */}
-      <Circle cx={120} cy={158} r={16} fill="#EF4444" stroke="#0B0B0B" strokeWidth={2.5} />
-      <SvgText x={120} y={164} textAnchor="middle" fontSize={16} fontWeight="900" fill="#FFFFFF">
-        ♥
-      </SvgText>
-      {/* Stamps/stickers added as gifts accumulate */}
-      {Array.from({ length: n }).map((_, i) => {
-        const cols = 5;
-        const row = Math.floor(i / cols);
-        const col = i % cols;
-        const x = 48 + col * 30 + ((row % 2) * 6);
-        const y = 200 - row * 18;
-        const c = STAMP_COLORS[i % STAMP_COLORS.length];
-        return (
-          <G key={`s-${i}`}>
-            <Rect
-              x={x - 8}
-              y={y - 8}
-              width={16}
-              height={16}
-              rx={2}
-              fill={c}
-              stroke="#0B0B0B"
-              strokeWidth={1.2}
-            />
-            <SvgText
-              x={x}
-              y={y + 4}
-              textAnchor="middle"
-              fontSize={11}
-              fontWeight="900"
-              fill="#FFFFFF"
-            >
-              ★
-            </SvgText>
-          </G>
-        );
-      })}
-      {!mini && (
-        <SvgText
-          x={120}
-          y={252}
-          textAnchor="middle"
-          fontSize={10}
-          fontWeight="800"
-          fill="#0B0B0B"
-        >
-          {n}/30 stamps
-        </SvgText>
-      )}
-    </Svg>
-  );
-}
-
-function ChoiceArt({ choice, count, mini }: { choice: string; count: number; mini?: boolean }) {
-  if (choice === "candy") return <CartoonJar count={count} mini={mini} />;
-  if (choice === "giftcard") return <CartoonEnvelope count={count} mini={mini} />;
-  return <CartoonVase count={count} mini={mini} />;
-}
-
-const CHOICES = [
-  { key: "flowers", label: "Bouquet of flowers" },
-  { key: "candy", label: "Jar of candy" },
-  { key: "giftcard", label: "Gift card" },
-];
+const PRIZES_ORDER: PrizeKey[] = ["flowers", "candy", "giftcard", "treasure_chest"];
 
 export default function Rewards() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [loading, setLoading] = useState(true);
+  const [picking, setPicking] = useState(false);
+  const router = useRouter();
 
   const load = useCallback(async () => {
     try {
       const { data } = await api.get<Progress>("/awards/progress");
       setProgress(data);
-    } catch {
-    } finally {
-      setLoading(false);
-    }
+    } catch {}
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const pick = async (choice: string) => {
+  const choosePrize = async (choice: PrizeKey) => {
+    setPicking(true);
     try {
       await api.post("/awards/choice", { choice });
       await load();
-    } catch {}
+    } catch (e: any) {
+      Alert.alert("Cannot change prize", formatApiError(e));
+    } finally {
+      setPicking(false);
+    }
   };
 
   if (loading || !progress) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={COLORS.brand} />
-      </View>
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}>
+          <ActivityIndicator color={COLORS.brand} size="large" />
+        </View>
+      </SafeAreaView>
     );
   }
 
-  const pct = Math.min(100, Math.round((progress.count / progress.goal) * 100));
-
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
+    <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.h1}>Monthly reward</Text>
-        <Text style={styles.sub}>
-          Each completed task adds one piece. Fill it up by 30 to earn your gift.
-        </Text>
+        <Text style={styles.h1}>Prizes</Text>
 
-        <View style={styles.visual}>
-          <ChoiceArt choice={progress.choice} count={progress.count} />
-        </View>
-
-        <View style={styles.progressWrap}>
-          <View style={styles.progressBg}>
-            <View style={[styles.progressFill, { width: `${pct}%` }]} />
-          </View>
-          <Text style={styles.progressText}>
-            {progress.count} / {progress.goal} this month
+        <View style={styles.pointsBadge}>
+          <Ionicons name="sparkles" size={18} color="#0B0B0B" />
+          <Text style={styles.pointsBadgeText}>
+            {progress.points} {progress.points === 1 ? "point" : "points"} earned
           </Text>
-          {progress.count >= progress.goal ? (
-            <Text style={styles.won}>
-              🎉 You earned this reward! Admin has been notified.
-            </Text>
-          ) : null}
         </View>
 
-        <Text style={[styles.h2, { marginTop: 24 }]}>Choose this month's reward</Text>
-        <View style={styles.choices}>
-          {CHOICES.map((c) => {
-            const on = progress.choice === c.key;
-            return (
-              <TouchableOpacity
-                key={c.key}
-                testID={`reward-choice-${c.key}`}
-                style={[styles.choiceCard, on && { borderColor: COLORS.brand, borderWidth: 2 }]}
-                onPress={() => pick(c.key)}
-              >
-                <View style={styles.choiceArt}>
-                  <ChoiceArt choice={c.key} count={on ? progress.count : 0} mini />
-                </View>
-                <Text style={styles.choiceLabel}>{c.label}</Text>
-                {on ? (
-                  <View style={styles.activeTag}>
-                    <Ionicons name="checkmark" size={14} color="#0B0B0B" />
-                    <Text style={styles.activeTagText}>Active</Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {progress.status === "picking" && (
+          <PickerView onChoose={choosePrize} disabled={picking} />
+        )}
+
+        {progress.status === "in_progress" && progress.choice && (
+          <InProgressView
+            choice={progress.choice as PrizeKey}
+            points={progress.points}
+          />
+        )}
+
+        {progress.status === "ready_to_claim" && progress.choice && (
+          <ReadyToClaimView
+            choice={progress.choice as PrizeKey}
+            onClaim={() => router.push("/claim")}
+          />
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+/* ---------- Picker (2x2 grid) ---------- */
+function PickerView({
+  onChoose,
+  disabled,
+}: {
+  onChoose: (k: PrizeKey) => void;
+  disabled: boolean;
+}) {
+  return (
+    <>
+      <View style={styles.howCard}>
+        <View style={styles.howRow}>
+          <Ionicons name="information-circle" size={18} color={COLORS.brand} />
+          <Text style={styles.howTitle}>How to win a prize</Text>
+        </View>
+        <Text style={styles.howText}>
+          Pick one prize below. Complete daily tasks to earn points. When you hit{" "}
+          <Text style={{ fontWeight: "800" }}>100 points</Text>, tap{" "}
+          <Text style={{ fontWeight: "800" }}>Claim prize</Text> and enter your
+          shipping details. We'll mail it to you — usually within a few weeks.
+        </Text>
+        <Text style={styles.howTextSmall}>
+          You can only have one prize in progress at a time, so choose carefully!
+        </Text>
+      </View>
+
+      <View style={styles.grid}>
+        {PRIZES_ORDER.map((key) => (
+          <PrizeTile key={key} prizeKey={key} onPress={() => onChoose(key)} disabled={disabled} />
+        ))}
+      </View>
+    </>
+  );
+}
+
+function PrizeTile({
+  prizeKey,
+  onPress,
+  disabled,
+}: {
+  prizeKey: PrizeKey;
+  onPress: () => void;
+  disabled: boolean;
+}) {
+  const meta = PRIZE_META[prizeKey];
+  return (
+    <TouchableOpacity
+      testID={`prize-tile-${prizeKey}`}
+      style={styles.tile}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.85}
+    >
+      <View style={styles.tileImageWrap}>
+        <PrizeImage prizeKey={prizeKey} points={100} size={120} />
+      </View>
+      <Text style={styles.tileLabel} numberOfLines={1}>
+        {meta.label}
+      </Text>
+      <Text style={styles.tileSub} numberOfLines={2}>
+        {meta.subtitle}
+      </Text>
+      <View style={styles.tileCta}>
+        <Text style={styles.tileCtaText}>Choose this prize</Text>
+        <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+/* ---------- Progress view ---------- */
+function InProgressView({
+  choice,
+  points,
+}: {
+  choice: PrizeKey;
+  points: number;
+}) {
+  const meta = PRIZE_META[choice];
+  return (
+    <View style={styles.progressCard}>
+      <View style={styles.lockedRow}>
+        <Ionicons name="lock-closed" size={14} color={COLORS.text2} />
+        <Text style={styles.lockedText}>
+          Locked until you claim this prize
+        </Text>
+      </View>
+      <Text style={styles.progressTitle}>{meta.label}</Text>
+      <Text style={styles.progressSub}>{meta.deliveryHint}</Text>
+      <View style={styles.progressImageWrap}>
+        <PrizeImage prizeKey={choice} points={points} size={260} />
+      </View>
+      <Text style={styles.encouragement}>
+        {points < 25
+          ? "You're just getting started — keep going!"
+          : points < 50
+          ? "Great progress, you're building momentum!"
+          : points < 75
+          ? "More than halfway there!"
+          : points < 100
+          ? "Almost ready to claim your prize!"
+          : "Tap below to claim your prize!"}
+      </Text>
+    </View>
+  );
+}
+
+/* ---------- Ready to claim ---------- */
+function ReadyToClaimView({
+  choice,
+  onClaim,
+}: {
+  choice: PrizeKey;
+  onClaim: () => void;
+}) {
+  const meta = PRIZE_META[choice];
+  return (
+    <View style={styles.claimCard}>
+      <Text style={styles.claimEmoji}>🎉</Text>
+      <Text style={styles.claimTitle}>You earned your prize!</Text>
+      <Text style={styles.claimSub}>{meta.label} · {meta.deliveryHint}</Text>
+      <View style={styles.progressImageWrap}>
+        <PrizeImage prizeKey={choice} points={100} size={260} />
+      </View>
+      <TouchableOpacity
+        testID="claim-prize-btn"
+        style={styles.claimBtn}
+        onPress={onClaim}
+        activeOpacity={0.88}
+      >
+        <Ionicons name="gift" size={16} color="#FFFFFF" />
+        <Text style={styles.claimBtnText}>Claim prize</Text>
+      </TouchableOpacity>
+      <Text style={styles.claimNote}>
+        Fill out your shipping details on the next page so we can mail your prize.
+      </Text>
+    </View>
+  );
+}
+
+/* ---------- Prize artwork — images for flowers, SVG for others ---------- */
+function PrizeImage({
+  prizeKey,
+  points,
+  size,
+}: {
+  prizeKey: PrizeKey;
+  points: number;
+  size: number;
+}) {
+  if (prizeKey === "flowers") {
+    return (
+      <Image
+        source={flowerImageForPoints(points)}
+        style={{ width: size, height: size }}
+        resizeMode="contain"
+      />
+    );
+  }
+  if (prizeKey === "candy") return <CandyJarSvg points={points} size={size} />;
+  if (prizeKey === "giftcard") return <EnvelopeSvg points={points} size={size} />;
+  return <TreasureChestSvg points={points} size={size} />;
+}
+
+function fillRatio(points: number): number {
+  return Math.min(1, Math.max(0, points / 100));
+}
+
+function CandyJarSvg({ points, size }: { points: number; size: number }) {
+  const ratio = fillRatio(points);
+  const candies = [
+    { c: "#FF6B6B" },
+    { c: "#FFD93D" },
+    { c: "#4FACFE" },
+    { c: "#A78BFA" },
+    { c: "#34D399" },
+    { c: "#F472B6" },
+    { c: "#FB923C" },
+    { c: "#22D3EE" },
+  ];
+  const jarTop = 60;
+  const jarBottom = 230;
+  const fillY = jarBottom - (jarBottom - jarTop) * ratio;
+  return (
+    <Svg width={size} height={size} viewBox="0 0 240 260">
+      <Defs>
+        <LinearGradient id="jarGlass" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0" stopColor="#E0F2FE" stopOpacity="0.85" />
+          <Stop offset="1" stopColor="#BAE6FD" stopOpacity="0.45" />
+        </LinearGradient>
+      </Defs>
+      <Rect x="60" y="35" width="120" height="22" rx="8" fill="#1F2937" />
+      <Path d="M52 60 Q52 250 120 250 Q188 250 188 60 Z" fill="url(#jarGlass)" stroke="#1F2937" strokeWidth="3" />
+      {ratio > 0 && (
+        <G>
+          <Path
+            d={`M58 ${fillY} L58 244 Q58 248 62 248 L178 248 Q182 248 182 244 L182 ${fillY} Z`}
+            fill="#FEF3C7"
+            opacity="0.7"
+          />
+          {candies.slice(0, Math.ceil(ratio * candies.length)).map((c, i) => (
+            <Circle
+              key={i}
+              cx={75 + ((i * 22) % 90)}
+              cy={fillY + 20 + Math.floor(i / 4) * 30}
+              r="10"
+              fill={c.c}
+              stroke="#FFFFFF"
+              strokeWidth="2"
+            />
+          ))}
+        </G>
+      )}
+      <Path d="M52 60 Q52 250 120 250" stroke="#FFFFFF" strokeWidth="3" fill="none" opacity="0.6" />
+    </Svg>
+  );
+}
+
+function EnvelopeSvg({ points, size }: { points: number; size: number }) {
+  const ratio = fillRatio(points);
+  return (
+    <Svg width={size} height={size} viewBox="0 0 240 200">
+      <Rect x="20" y="60" width="200" height="120" rx="10" fill="#FEF3C7" stroke="#1F2937" strokeWidth="3" />
+      <Path d="M20 60 L120 130 L220 60" stroke="#1F2937" strokeWidth="3" fill="none" />
+      {ratio >= 0.25 && <Rect x="160" y="76" width="36" height="42" fill="#FB923C" stroke="#1F2937" strokeWidth="2" />}
+      {ratio >= 0.5 && <Rect x="44" y="76" width="36" height="42" fill="#34D399" stroke="#1F2937" strokeWidth="2" />}
+      {ratio >= 0.75 && <Rect x="102" y="142" width="36" height="28" fill="#F472B6" stroke="#1F2937" strokeWidth="2" />}
+      {ratio >= 1 && (
+        <G>
+          <Circle cx="120" cy="50" r="22" fill="#FACC15" stroke="#1F2937" strokeWidth="3" />
+          <Path d="M120 32 L124 44 L136 44 L126 52 L130 64 L120 56 L110 64 L114 52 L104 44 L116 44 Z" fill="#1F2937" />
+        </G>
+      )}
+    </Svg>
+  );
+}
+
+function TreasureChestSvg({ points, size }: { points: number; size: number }) {
+  const ratio = fillRatio(points);
+  const lidAngle = ratio >= 1 ? -28 : ratio >= 0.5 ? -14 : 0;
+  return (
+    <Svg width={size} height={size} viewBox="0 0 240 240">
+      <Defs>
+        <LinearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor="#A0522D" />
+          <Stop offset="1" stopColor="#5D2E0E" />
+        </LinearGradient>
+        <LinearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor="#FBBF24" />
+          <Stop offset="1" stopColor="#D97706" />
+        </LinearGradient>
+      </Defs>
+      {/* base */}
+      <Rect x="32" y="120" width="176" height="92" rx="6" fill="url(#wood)" stroke="#3B1A07" strokeWidth="3" />
+      <Rect x="32" y="120" width="176" height="14" fill="#3B1A07" />
+      <Rect x="32" y="178" width="176" height="6" fill="url(#gold)" />
+      {/* lid (rotated) */}
+      <G rotation={lidAngle} originX="120" originY="120">
+        <Path d="M32 120 Q120 60 208 120 Z" fill="url(#wood)" stroke="#3B1A07" strokeWidth="3" />
+        <Path d="M32 120 Q120 72 208 120" fill="none" stroke="url(#gold)" strokeWidth="6" />
+        <Rect x="112" y="116" width="16" height="22" fill="url(#gold)" stroke="#3B1A07" strokeWidth="2" />
+        <Circle cx="120" cy="124" r="3" fill="#3B1A07" />
+      </G>
+      {/* coins / sparkles by ratio */}
+      {ratio >= 0.25 && <Circle cx="84" cy="172" r="9" fill="url(#gold)" stroke="#3B1A07" strokeWidth="2" />}
+      {ratio >= 0.5 && <Circle cx="120" cy="178" r="11" fill="url(#gold)" stroke="#3B1A07" strokeWidth="2" />}
+      {ratio >= 0.75 && <Circle cx="158" cy="170" r="9" fill="url(#gold)" stroke="#3B1A07" strokeWidth="2" />}
+      {ratio >= 1 && (
+        <G>
+          <Path d="M120 20 L126 36 L142 36 L130 46 L134 62 L120 52 L106 62 L110 46 L98 36 L114 36 Z" fill="#FACC15" stroke="#3B1A07" strokeWidth="2" />
+          <Ellipse cx="120" cy="74" rx="46" ry="6" fill="#FACC15" opacity="0.4" />
+        </G>
+      )}
+    </Svg>
+  );
+}
+
+/* ---------- styles ---------- */
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.bg },
-  scroll: { padding: 20, paddingBottom: 48 },
-  h1: { fontSize: 28, fontWeight: "800", color: COLORS.text },
-  h2: { fontSize: 18, fontWeight: "800", color: COLORS.text },
-  sub: { color: COLORS.text2, marginTop: 6 },
-  visual: {
-    height: 320,
-    marginTop: 16,
-    borderRadius: 24,
-    backgroundColor: COLORS.bg2,
-    borderColor: COLORS.border,
-    borderWidth: 1,
-    padding: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  progressWrap: { marginTop: 14 },
-  progressBg: {
-    height: 14,
-    borderRadius: 99,
-    backgroundColor: COLORS.bg2,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  progressFill: { height: "100%", backgroundColor: COLORS.brand },
-  progressText: { color: COLORS.text, marginTop: 8, fontWeight: "700" },
-  won: { color: COLORS.brand, marginTop: 6, fontWeight: "800" },
-  choices: { flexDirection: "row", gap: 10, marginTop: 12 },
-  choiceCard: {
-    flex: 1,
-    borderRadius: 16,
-    borderColor: COLORS.border,
-    borderWidth: 1,
-    backgroundColor: COLORS.bg2,
-    overflow: "hidden",
-    paddingBottom: 10,
-  },
-  choiceArt: { height: 110, alignItems: "center", justifyContent: "center", padding: 6 },
-  choiceLabel: { paddingHorizontal: 10, fontWeight: "700", color: COLORS.text, fontSize: 13 },
-  activeTag: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    backgroundColor: COLORS.brand,
-    borderRadius: 99,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  scroll: { padding: 18, paddingBottom: 80 },
+
+  h1: { fontSize: 30, fontWeight: "800", color: COLORS.text, marginBottom: 10 },
+  pointsBadge: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    backgroundColor: COLORS.brand,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 99,
+    gap: 6,
+    marginBottom: 16,
   },
-  activeTagText: { color: "#0B0B0B", fontSize: 11, fontWeight: "800" },
+  pointsBadgeText: { color: "#0B0B0B", fontWeight: "800", fontSize: 14 },
+
+  howCard: {
+    backgroundColor: COLORS.bg2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  howRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  howTitle: { color: COLORS.text, fontWeight: "800", fontSize: 14 },
+  howText: { color: COLORS.text2, fontSize: 13, lineHeight: 19 },
+  howTextSmall: { color: COLORS.text3, fontSize: 12, marginTop: 8, fontStyle: "italic" },
+
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  tile: {
+    width: "48%",
+    backgroundColor: COLORS.bg2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: "center",
+  },
+  tileImageWrap: {
+    width: "100%",
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.bg,
+    borderRadius: 12,
+    marginBottom: 8,
+    overflow: "hidden",
+  },
+  tileLabel: { color: COLORS.text, fontWeight: "800", fontSize: 14, textAlign: "center" },
+  tileSub: { color: COLORS.text2, fontSize: 12, textAlign: "center", marginTop: 2, minHeight: 30 },
+  tileCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#0B0B0B",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 99,
+    marginTop: 8,
+  },
+  tileCtaText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
+
+  progressCard: {
+    backgroundColor: COLORS.bg2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 18,
+    alignItems: "center",
+  },
+  lockedRow: { flexDirection: "row", gap: 6, alignItems: "center", alignSelf: "flex-start" },
+  lockedText: { color: COLORS.text2, fontSize: 12 },
+  progressTitle: { color: COLORS.text, fontWeight: "800", fontSize: 22, marginTop: 6 },
+  progressSub: { color: COLORS.text2, fontSize: 13, marginTop: 2 },
+  progressImageWrap: {
+    marginTop: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.bg,
+    borderRadius: 16,
+    padding: 12,
+  },
+  encouragement: { color: COLORS.text, marginTop: 14, fontWeight: "600", textAlign: "center" },
+
+  claimCard: {
+    backgroundColor: COLORS.bg2,
+    borderColor: COLORS.brand,
+    borderWidth: 2,
+    borderRadius: 18,
+    padding: 18,
+    alignItems: "center",
+  },
+  claimEmoji: { fontSize: 44 },
+  claimTitle: { color: COLORS.text, fontWeight: "800", fontSize: 22, marginTop: 4 },
+  claimSub: { color: COLORS.text2, fontSize: 13, marginTop: 4, textAlign: "center" },
+  claimBtn: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    backgroundColor: "#0B0B0B",
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 16,
+  },
+  claimBtnText: { color: "#FFFFFF", fontWeight: "800", fontSize: 16 },
+  claimNote: { color: COLORS.text3, fontSize: 12, marginTop: 12, textAlign: "center" },
 });

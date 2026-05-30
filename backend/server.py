@@ -168,7 +168,14 @@ class JournalUpdateIn(BaseModel):
     timestamp: Optional[datetime] = None
 
 class AwardChoiceIn(BaseModel):
-    choice: Literal["flowers", "candy", "giftcard"]
+    choice: Literal["flowers", "candy", "giftcard", "treasure_chest"]
+
+
+class AwardClaimIn(BaseModel):
+    full_name: str
+    address: str
+    email: EmailStr
+    phone: str
 
 class SendReportIn(BaseModel):
     doctor_email: EmailStr
@@ -629,32 +636,29 @@ async def check_task(body: TaskCheckIn, user: dict = Depends(get_current_user)):
         {"task_id": body.task_id},
         {"$set": {"done_at": now, "status": "done"}},
     )
-    # Award progress: add 1 item to current award
+    # Award progress: add 1 point to current award (if user has an active choice)
+    AWARD_GOAL = 100
     award = await db.award_progress.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    if not award:
-        await db.award_progress.insert_one(
-            {
-                "user_id": user["user_id"],
-                "choice": "flowers",
-                "count": 1,
-                "month_start": now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+    if award and award.get("choice") and (award.get("status") or "in_progress") == "in_progress":
+        new_points = (award.get("points") or award.get("count") or 0) + 1
+        new_status = "ready_to_claim" if new_points >= AWARD_GOAL else "in_progress"
+        update = {
+            "$set": {
+                "points": new_points,
                 "last_increment": now,
-                "notified_admin": False,
-            }
-        )
-    else:
-        update = {"$inc": {"count": 1}, "$set": {"last_increment": now}}
+                "status": new_status,
+            },
+        }
         await db.award_progress.update_one({"user_id": user["user_id"]}, update)
-        new_count = (award.get("count") or 0) + 1
-        if new_count >= 30 and not award.get("notified_admin"):
+        if new_status == "ready_to_claim" and not award.get("notified_admin"):
             await db.admin_notices.insert_one(
                 {
                     "notice_id": f"notice_{uuid.uuid4().hex[:10]}",
                     "user_id": user["user_id"],
                     "email": user["email"],
-                    "choice": award.get("choice", "flowers"),
+                    "choice": award.get("choice"),
                     "created_at": now,
-                    "message": f"User {_display_name(user)} ({user['email']}) completed 30 tasks and earned their monthly reward!",
+                    "message": f"User {_display_name(user)} ({user['email']}) reached 100 points and is ready to claim their {award.get('choice')} reward.",
                 }
             )
             await db.award_progress.update_one(
@@ -778,15 +782,35 @@ async def delete_journal(entry_id: str, user: dict = Depends(get_current_user)):
 
 
 # --- Awards ---
+AWARD_GOAL = 100
+
+
 @api.get("/awards/progress")
 async def award_progress(user: dict = Depends(get_current_user)):
     doc = await db.award_progress.find_one({"user_id": user["user_id"]}, {"_id": 0})
     if not doc:
-        return {"choice": "flowers", "count": 0, "goal": 30}
+        return {
+            "choice": None,
+            "points": 0,
+            "goal": AWARD_GOAL,
+            "status": "picking",
+        }
+    # Normalize legacy fields (count → points)
+    points = doc.get("points") if doc.get("points") is not None else (doc.get("count") or 0)
+    status = doc.get("status")
+    if not status:
+        if not doc.get("choice"):
+            status = "picking"
+        elif points >= AWARD_GOAL:
+            status = "ready_to_claim"
+        else:
+            status = "in_progress"
     for k in ["month_start", "last_increment"]:
         if isinstance(doc.get(k), datetime):
             doc[k] = doc[k].isoformat()
-    doc["goal"] = 30
+    doc["points"] = points
+    doc["status"] = status
+    doc["goal"] = AWARD_GOAL
     return doc
 
 
@@ -794,12 +818,24 @@ async def award_progress(user: dict = Depends(get_current_user)):
 async def set_award_choice(body: AwardChoiceIn, user: dict = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
     existing = await db.award_progress.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    # Lock: cannot change while an award is in progress or ready_to_claim
+    if existing and existing.get("choice"):
+        status = existing.get("status")
+        points = existing.get("points") if existing.get("points") is not None else (existing.get("count") or 0)
+        if not status:
+            status = "ready_to_claim" if points >= AWARD_GOAL else "in_progress"
+        if status in ("in_progress", "ready_to_claim"):
+            raise HTTPException(
+                status_code=409,
+                detail="You already have a prize in progress. Claim it before picking a new one.",
+            )
     if not existing:
         await db.award_progress.insert_one(
             {
                 "user_id": user["user_id"],
                 "choice": body.choice,
-                "count": 0,
+                "points": 0,
+                "status": "in_progress",
                 "month_start": now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
                 "last_increment": None,
                 "notified_admin": False,
@@ -807,9 +843,78 @@ async def set_award_choice(body: AwardChoiceIn, user: dict = Depends(get_current
         )
     else:
         await db.award_progress.update_one(
-            {"user_id": user["user_id"]}, {"$set": {"choice": body.choice}}
+            {"user_id": user["user_id"]},
+            {"$set": {
+                "choice": body.choice,
+                "points": 0,
+                "status": "in_progress",
+                "notified_admin": False,
+                "last_increment": None,
+            }},
         )
     return {"ok": True, "choice": body.choice}
+
+
+@api.post("/awards/claim")
+async def claim_award(body: AwardClaimIn, user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
+    award = await db.award_progress.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not award or not award.get("choice"):
+        raise HTTPException(status_code=400, detail="No prize to claim")
+    points = award.get("points") if award.get("points") is not None else (award.get("count") or 0)
+    status = award.get("status") or ("ready_to_claim" if points >= AWARD_GOAL else "in_progress")
+    if status != "ready_to_claim":
+        raise HTTPException(
+            status_code=400,
+            detail=f"You need {AWARD_GOAL - points} more points before you can claim this prize.",
+        )
+
+    claim_id = f"claim_{uuid.uuid4().hex[:10]}"
+    claim_doc = {
+        "claim_id": claim_id,
+        "user_id": user["user_id"],
+        "choice": award.get("choice"),
+        "full_name": body.full_name.strip(),
+        "address": body.address.strip(),
+        "email": body.email.lower().strip(),
+        "phone": body.phone.strip(),
+        "points_at_claim": points,
+        "created_at": now,
+        "fulfilled": False,
+    }
+    await db.award_claims.insert_one(claim_doc)
+
+    # Notify admin to fulfill
+    await db.admin_notices.insert_one(
+        {
+            "notice_id": f"notice_{uuid.uuid4().hex[:10]}",
+            "user_id": user["user_id"],
+            "email": user["email"],
+            "choice": award.get("choice"),
+            "claim_id": claim_id,
+            "created_at": now,
+            "message": (
+                f"User {_display_name(user)} ({user['email']}) claimed their {award.get('choice')} prize. "
+                f"Ship to: {body.full_name} · {body.address} · {body.phone} · {body.email}"
+            ),
+        }
+    )
+
+    # Reset award progress so user can pick a new prize
+    await db.award_progress.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "choice": None,
+            "points": 0,
+            "status": "picking",
+            "notified_admin": False,
+            "last_increment": None,
+            "last_claim_id": claim_id,
+            "last_claim_at": now,
+        }},
+    )
+
+    return {"ok": True, "claim_id": claim_id}
 
 
 # --- Billing / Stripe subscription ---
