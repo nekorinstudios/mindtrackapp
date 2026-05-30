@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.bg },
   content: { flex: 1, padding: 22, alignItems: "center" },
-  logo: { width: 110, height: 110, marginTop: 8 },
+  logo: { width: 220, height: 220, marginTop: 8 },
   title: { fontSize: 24, fontWeight: "800", color: COLORS.text, textAlign: "center", marginTop: 8 },
   sub: { color: COLORS.text2, textAlign: "center", marginTop: 8, fontSize: 14, lineHeight: 20, paddingHorizontal: 8 },
   card: {

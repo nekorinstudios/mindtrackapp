@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { flex: 1, padding: 24, justifyContent: "space-between" },
   hero: { marginTop: 48, alignItems: "center" },
-  logo: { width: 140, height: 140, marginBottom: 12 },
+  logo: { width: 220, height: 220, marginBottom: 12 },
   brand: { fontSize: 44, fontWeight: "800", color: COLORS.text, letterSpacing: -1, textAlign: "center" },
   tagline: { marginTop: 12, fontSize: 18, color: COLORS.text2, lineHeight: 26, textAlign: "center" },
   actions: { gap: 12, marginBottom: 24 },
