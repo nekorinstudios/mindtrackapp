@@ -26,6 +26,7 @@ type Task = {
   started_at?: string | null;
   done_at?: string | null;
   notify_interval_minutes: number;
+  duration_minutes?: number;
   created_at: string;
 };
 
@@ -51,6 +52,7 @@ export default function Tasks() {
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [newInterval, setNewInterval] = useState(10);
+  const [newDuration, setNewDuration] = useState(10);
   const [adding, setAdding] = useState(false);
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -97,6 +99,7 @@ export default function Tasks() {
       await api.post("/tasks", {
         title: newTitle.trim(),
         notify_interval_minutes: newInterval,
+        duration_minutes: newDuration,
       });
       setNewTitle("");
       await load();
@@ -316,6 +319,31 @@ export default function Tasks() {
               placeholderTextColor={COLORS.text3}
             />
             <View style={styles.intervalRow}>
+              <Text style={styles.small}>Task duration</Text>
+              <View style={styles.pillRow}>
+                {INTERVALS.map((m) => (
+                  <TouchableOpacity
+                    key={`dur-${m}`}
+                    testID={`task-new-duration-${m}`}
+                    onPress={() => setNewDuration(m)}
+                    style={[
+                      styles.pill,
+                      newDuration === m && { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        newDuration === m && { color: "#0B0B0B" },
+                      ]}
+                    >
+                      {m}m
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={styles.intervalRow}>
               <Text style={styles.small}>Check-in every</Text>
               <View style={styles.pillRow}>
                 {INTERVALS.map((m) => (
@@ -415,7 +443,7 @@ export default function Tasks() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.taskTitle}>{t.title}</Text>
                   <Text style={styles.taskMeta}>
-                    Status: {t.status.replace("_", " ")} · Check-in: {t.notify_interval_minutes} min
+                    Status: {t.status.replace("_", " ")} · {t.duration_minutes ?? 10}-min task · Check-in: {t.notify_interval_minutes} min
                   </Text>
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <TouchableOpacity

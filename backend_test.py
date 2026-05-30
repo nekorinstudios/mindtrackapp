@@ -1,15 +1,12 @@
 """
-Backend tests for MindTrack Awards state machine + claim flow.
-
-Targets http://localhost:8001/api (per main agent instructions).
-Uses pymongo for the force-bump-to-100-points step.
+Backend test for MindTrack points system.
+Covers 8 scenarios per agent_communication block (test_sequence 5).
 """
 
 import os
 import sys
 import uuid
-import traceback
-from typing import Optional
+from datetime import datetime, timezone
 
 import requests
 from pymongo import MongoClient
@@ -21,264 +18,254 @@ DB_NAME = os.environ.get("DB_NAME", "mental_health_app")
 mongo = MongoClient(MONGO_URL)
 db = mongo[DB_NAME]
 
-results = []  # list of (name, passed, detail)
+results = []
 
 
-def record(name: str, passed: bool, detail: str = ""):
-    status = "PASS" if passed else "FAIL"
-    print(f"[{status}] {name}: {detail}")
-    results.append((name, passed, detail))
+def log(scenario, ok, detail):
+    status = "PASS" if ok else "FAIL"
+    print(f"[{status}] {scenario}: {detail}")
+    results.append((scenario, ok, detail))
 
 
 def register_user():
     suffix = uuid.uuid4().hex[:8]
     payload = {
-        "email": f"awards_tester_{suffix}@test.dev",
-        "username": f"awards_{suffix}",
-        "password": "AwardsP@ss123",
-        "first_name": "Amelia",
-        "last_name": "Reyes",
+        "email": f"points_tester_{suffix}@test.dev",
+        "username": f"points_tester_{suffix}",
+        "password": "Str0ngPass!2026",
+        "first_name": "Riley",
+        "last_name": "Chen",
     }
-    r = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=15)
+    r = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=30)
     r.raise_for_status()
     data = r.json()
-    return data["access_token"], data["user"], payload
+    return data["access_token"], data["user"]["user_id"], payload["email"]
 
 
-def auth_headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+def auth_headers(token):
+    return {"Authorization": f"Bearer {token}"}
 
 
-def main() -> int:
-    try:
-        token, user, reg = register_user()
-        user_id = user["user_id"]
-        print(f"Registered: {user_id} / {user['email']}")
-    except Exception as e:
-        record("Register fresh user", False, f"{type(e).__name__}: {e}")
-        return 1
+def main():
+    print(f"=== MindTrack Points System Backend Test ===")
+    print(f"BASE_URL = {BASE_URL}")
+    print(f"MONGO_URL = {MONGO_URL}  DB_NAME = {DB_NAME}")
+
+    token, user_id, email = register_user()
+    print(f"Registered user_id={user_id} email={email}")
 
     h = auth_headers(token)
 
-    # --- Scenario 1 ---
-    try:
-        r = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=10)
-        assert r.status_code == 200, f"HTTP {r.status_code} body={r.text}"
-        data = r.json()
-        ok = (
-            data.get("choice") is None
-            and data.get("points") == 0
-            and data.get("goal") == 100
-            and data.get("status") == "picking"
-        )
-        record("S1 GET /awards/progress on fresh user", ok, f"shape={data}")
-    except Exception as e:
-        record("S1 GET /awards/progress on fresh user", False, f"{type(e).__name__}: {e}")
+    r = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=20)
+    print(f"Initial /awards/progress -> {r.status_code} {r.json()}")
+    assert r.json().get("status") == "picking"
 
-    # --- Scenario 2 ---
-    try:
+    r = requests.post(f"{BASE_URL}/awards/choice", json={"choice": "flowers"}, headers=h, timeout=20)
+    assert r.status_code == 200, f"choice failed: {r.status_code} {r.text}"
+
+    prog = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=20).json()
+    print(f"After choice /awards/progress -> {prog}")
+    assert prog["status"] == "in_progress" and prog["points"] == 0
+
+    # ----- S1: energy_log +1/day cap 1 -----
+    r = requests.post(f"{BASE_URL}/energy/log", json={"percent": 50}, headers=h, timeout=20)
+    body = r.json()
+    print(f"S1a energy/log #1 -> {r.status_code} body={body}")
+    log("S1a energy first log awards 1", r.status_code == 200 and body.get("points_awarded") == 1,
+        f"points_awarded={body.get('points_awarded')}")
+
+    prog = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=20).json()
+    log("S1b award_progress.points==1 after one energy log", prog.get("points") == 1, f"progress={prog}")
+
+    # ----- S2: second energy_log same day capped -----
+    r = requests.post(f"{BASE_URL}/energy/log", json={"percent": 60}, headers=h, timeout=20)
+    body = r.json()
+    print(f"S2 energy/log #2 -> {r.status_code} body={body}")
+    log("S2 second energy log same day awards 0 (cap)",
+        r.status_code == 200 and body.get("points_awarded") == 0,
+        f"points_awarded={body.get('points_awarded')}")
+
+    # ----- S3: symptoms_log +2/log cap 5/day -----
+    sym_awards = []
+    for i in range(6):
         r = requests.post(
-            f"{BASE_URL}/awards/choice", headers=h,
-            json={"choice": "treasure_chest"}, timeout=10,
+            f"{BASE_URL}/symptoms/log",
+            json={"symptoms": ["Restless"], "note": f"call {i+1}"},
+            headers=h,
+            timeout=20,
         )
-        assert r.status_code == 200, f"HTTP {r.status_code} body={r.text}"
-        choice_resp = r.json()
-        r2 = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=10)
-        assert r2.status_code == 200, f"HTTP {r2.status_code} body={r2.text}"
-        prog = r2.json()
-        ok = (
-            choice_resp.get("ok") is True
-            and choice_resp.get("choice") == "treasure_chest"
-            and prog.get("choice") == "treasure_chest"
-            and prog.get("status") == "in_progress"
-            and prog.get("points") == 0
-            and prog.get("goal") == 100
-        )
-        record("S2 POST /awards/choice treasure_chest then GET progress",
-               ok, f"choice_resp={choice_resp} progress={prog}")
-    except Exception as e:
-        record("S2 POST /awards/choice treasure_chest then GET progress",
-               False, f"{type(e).__name__}: {e}")
+        b = r.json()
+        sym_awards.append(b.get("points_awarded"))
+        print(f"S3 symptoms/log #{i+1} -> status={r.status_code} body={b}")
 
-    # --- Scenario 3 ---
-    try:
-        r = requests.post(
-            f"{BASE_URL}/awards/choice", headers=h,
-            json={"choice": "flowers"}, timeout=10,
-        )
-        ok = r.status_code == 409 and "in progress" in (r.text or "").lower()
-        record("S3 POST /awards/choice while in_progress -> 409",
-               ok, f"HTTP {r.status_code} body={r.text[:200]}")
-    except Exception as e:
-        record("S3 POST /awards/choice while in_progress -> 409",
-               False, f"{type(e).__name__}: {e}")
+    log("S3 symptoms_log awards 2x5 then 0 (cap)",
+        sym_awards[:5] == [2, 2, 2, 2, 2] and sym_awards[5] == 0,
+        f"sequence={sym_awards}")
 
-    # --- Scenario 4 ---
-    try:
-        rc = requests.post(
-            f"{BASE_URL}/tasks", headers=h,
-            json={"title": "Drink water", "notify_interval_minutes": 10},
-            timeout=10,
-        )
-        assert rc.status_code == 200, f"create HTTP {rc.status_code} body={rc.text}"
-        task = rc.json()
-        task_id = task["task_id"]
-        rd = requests.post(
-            f"{BASE_URL}/tasks/check", headers=h,
-            json={"task_id": task_id, "action": "done"},
-            timeout=10,
-        )
-        assert rd.status_code == 200, f"check HTTP {rd.status_code} body={rd.text}"
-        r2 = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=10)
-        prog = r2.json()
-        ok = (
-            prog.get("points") == 1
-            and prog.get("status") == "in_progress"
-            and prog.get("choice") == "treasure_chest"
-            and prog.get("goal") == 100
-        )
-        record("S4 Task done increments points to 1, status remains in_progress",
-               ok, f"progress={prog}")
-    except Exception as e:
-        record("S4 Task done increments points to 1, status remains in_progress",
-               False, f"{type(e).__name__}: {e}")
+    prog = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=20).json()
+    log("S3b award_progress.points==11 after energy+symptoms",
+        prog.get("points") == 11, f"progress.points={prog.get('points')}")
 
-    # --- Scenario 5 ---
-    try:
-        upd = db.award_progress.update_one(
+    # ----- S4: tasks by duration_minutes -----
+    duration_results = {}
+    duration_buckets = [5, 10, 15, 20, 25, 30]
+    for dur in duration_buckets:
+        db.tasks.update_many(
             {"user_id": user_id},
-            {"$set": {"points": 100, "status": "ready_to_claim"}},
+            {"$set": {"done_at": None, "status": "pending"}},
         )
-        assert upd.matched_count == 1, f"matched_count={upd.matched_count}"
-        r2 = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=10)
-        prog = r2.json()
-        ok = (
-            prog.get("points") == 100
-            and prog.get("status") == "ready_to_claim"
-            and prog.get("choice") == "treasure_chest"
-            and prog.get("goal") == 100
+        r = requests.post(
+            f"{BASE_URL}/tasks",
+            json={"title": f"task-{dur}min", "duration_minutes": dur, "notify_interval_minutes": 10},
+            headers=h,
+            timeout=20,
         )
-        record("S5 Force-bump to 100 -> status=ready_to_claim", ok, f"progress={prog}")
-    except Exception as e:
-        record("S5 Force-bump to 100 -> status=ready_to_claim", False,
-               f"{type(e).__name__}: {e}")
+        assert r.status_code == 200, f"task create failed: {r.text}"
+        tjson = r.json()
+        task_id = tjson["task_id"]
+        assert tjson["duration_minutes"] == dur, f"expected duration_minutes={dur} got {tjson['duration_minutes']}"
+        r = requests.post(
+            f"{BASE_URL}/tasks/check",
+            json={"task_id": task_id, "action": "done"},
+            headers=h,
+            timeout=20,
+        )
+        b = r.json()
+        duration_results[dur] = b.get("points_awarded")
+        print(f"S4 task duration={dur}min -> status={r.status_code} body={b}")
 
-    # --- Scenario 5b ---
+    expected = {5: 1, 10: 1, 15: 1, 20: 2, 25: 2, 30: 2}
+    log("S4 task duration -> points mapping correct",
+        duration_results == expected,
+        f"results={duration_results} expected={expected}")
+
+    prog = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=20).json()
+    log("S4b award_progress.points==20 after tasks",
+        prog.get("points") == 20, f"progress.points={prog.get('points')}")
+
+    # ----- S5: journal +1/day cap 1 -----
+    r = requests.post(f"{BASE_URL}/journal", json={"text": "first journal of the day"}, headers=h, timeout=20)
+    j1 = r.json()
+    print(f"S5a journal #1 -> status={r.status_code} body={j1}")
+    log("S5a first journal awards 1",
+        r.status_code == 200 and j1.get("points_awarded") == 1,
+        f"points_awarded={j1.get('points_awarded')}")
+
+    r = requests.post(f"{BASE_URL}/journal", json={"text": "second journal same day"}, headers=h, timeout=20)
+    j2 = r.json()
+    print(f"S5b journal #2 -> status={r.status_code} body={j2}")
+    log("S5b second journal awards 0 (cap)",
+        r.status_code == 200 and j2.get("points_awarded") == 0,
+        f"points_awarded={j2.get('points_awarded')}")
+
+    prog = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=20).json()
+    log("S5c award_progress.points==21 after journal",
+        prog.get("points") == 21, f"progress.points={prog.get('points')}")
+
+    # ----- S6: reports/send -----
+    report_send_status = None
+    report_points = None
     try:
         r = requests.post(
-            f"{BASE_URL}/awards/choice", headers=h,
-            json={"choice": "candy"}, timeout=10,
+            f"{BASE_URL}/reports/send",
+            json={"doctor_email": "nekorinstudios@gmail.com", "days": 30},
+            headers=h,
+            timeout=60,
         )
-        ok = r.status_code == 409
-        record("S5b POST /awards/choice while ready_to_claim -> 409",
-               ok, f"HTTP {r.status_code} body={r.text[:200]}")
+        print(f"S6 reports/send -> status={r.status_code} body={r.text[:400]}")
+        if r.status_code == 200:
+            b = r.json()
+            report_send_status = b.get("status")
+            report_points = b.get("points_awarded")
     except Exception as e:
-        record("S5b POST /awards/choice while ready_to_claim -> 409",
-               False, f"{type(e).__name__}: {e}")
+        print(f"  exception: {e}")
 
-    # --- Scenario 6 ---
-    claim_payload = {
-        "full_name": "Amelia Reyes",
-        "address": "742 Evergreen Terrace, Springfield, IL 62704",
-        "email": "amelia.reyes@test.dev",
-        "phone": "+1-555-867-5309",
+    if report_send_status == "sent":
+        log("S6a report_send awards 5 when status==sent",
+            report_points == 5, f"points_awarded={report_points}")
+        r = requests.post(
+            f"{BASE_URL}/reports/send",
+            json={"doctor_email": "nekorinstudios@gmail.com", "days": 30},
+            headers=h,
+            timeout=60,
+        )
+        print(f"S6b second reports/send -> {r.status_code} {r.text[:300]}")
+        if r.status_code == 200:
+            b = r.json()
+            log("S6b second report same week awards 0 (cap)",
+                b.get("points_awarded") == 0, f"points_awarded={b.get('points_awarded')}")
+        else:
+            log("S6b second report failed at provider", False,
+                f"status={r.status_code} body={r.text[:200]}")
+    else:
+        rs_count = db.points_ledger.count_documents({"user_id": user_id, "action": "report_send"})
+        log("S6 report_send did not succeed -> no ledger row",
+            rs_count == 0,
+            f"points_ledger report_send rows={rs_count}, report status={report_send_status}")
+
+    # ----- S7: ledger integrity -----
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    iso = datetime.now(timezone.utc).isocalendar()
+    week = f"{iso[0]}-W{iso[1]:02d}"
+
+    rows = list(db.points_ledger.find({"user_id": user_id}, {"_id": 0}))
+    by_action = {}
+    for row in rows:
+        by_action.setdefault(row["action"], []).append(row)
+    print(f"S7 points_ledger ({len(rows)} rows for user):")
+    for action, lst in by_action.items():
+        print(f"   {action}: count={len(lst)} period_keys={[r['period_key'] for r in lst]} "
+              f"applied={[r['applied_to_prize'] for r in lst]} points={[r['points'] for r in lst]}")
+
+    expected_counts = {
+        "energy_log": 1,
+        "symptoms_log": 5,
+        "task_5min": 1,
+        "task_10min": 1,
+        "task_15min": 1,
+        "task_20min": 1,
+        "task_25min": 1,
+        "task_30min": 1,
+        "journal": 1,
     }
-    claim_id: Optional[str] = None
-    try:
-        r = requests.post(f"{BASE_URL}/awards/claim", headers=h,
-                          json=claim_payload, timeout=10)
-        assert r.status_code == 200, f"HTTP {r.status_code} body={r.text}"
-        data = r.json()
-        claim_id = data.get("claim_id")
-        r2 = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=10)
-        prog = r2.json()
-        ok = (
-            data.get("ok") is True
-            and bool(claim_id)
-            and claim_id.startswith("claim_")
-            and prog.get("status") == "picking"
-            and prog.get("choice") is None
-            and prog.get("points") == 0
-            and prog.get("goal") == 100
-        )
-        record("S6 POST /awards/claim ready_to_claim -> 200, resets to picking",
-               ok, f"claim_resp={data} progress_after={prog}")
-    except Exception as e:
-        record("S6 POST /awards/claim ready_to_claim -> 200, resets to picking",
-               False, f"{type(e).__name__}: {e}")
+    s7_ok = True
+    s7_details = []
+    for action, expected_n in expected_counts.items():
+        actual_n = len(by_action.get(action, []))
+        if actual_n != expected_n:
+            s7_ok = False
+            s7_details.append(f"{action} count={actual_n} expected={expected_n}")
+        for row in by_action.get(action, []):
+            if row["period_key"] != today:
+                s7_ok = False
+                s7_details.append(f"{action} period_key={row['period_key']} expected={today}")
+            if not row.get("applied_to_prize"):
+                s7_ok = False
+                s7_details.append(f"{action} applied_to_prize=False")
+    log("S7 points_ledger row counts + period_keys + applied_to_prize",
+        s7_ok, "; ".join(s7_details) if s7_details else "all expected rows present, daily period_key correct, applied_to_prize=True")
 
-    # --- Scenario 7 ---
-    try:
-        r = requests.post(f"{BASE_URL}/awards/claim", headers=h,
-                          json=claim_payload, timeout=10)
-        ok = r.status_code == 400 and "no prize" in (r.text or "").lower()
-        record("S7 POST /awards/claim while picking -> 400 'No prize to claim'",
-               ok, f"HTTP {r.status_code} body={r.text[:200]}")
-    except Exception as e:
-        record("S7 POST /awards/claim while picking -> 400 'No prize to claim'",
-               False, f"{type(e).__name__}: {e}")
+    if "report_send" in by_action:
+        rok = all(r["period_key"] == week for r in by_action["report_send"])
+        log("S7b report_send weekly period_key",
+            rok, f"period_keys={[r['period_key'] for r in by_action['report_send']]} expected_week={week}")
 
-    # --- Scenario 7b: claim while in_progress -> 400 'more points' ---
-    try:
-        r0 = requests.post(f"{BASE_URL}/awards/choice", headers=h,
-                           json={"choice": "flowers"}, timeout=10)
-        assert r0.status_code == 200, f"choice flowers HTTP {r0.status_code} body={r0.text}"
-        r = requests.post(f"{BASE_URL}/awards/claim", headers=h,
-                          json=claim_payload, timeout=10)
-        ok = r.status_code == 400 and "more points" in (r.text or "").lower()
-        record("S7b POST /awards/claim while in_progress (not ready) -> 400",
-               ok, f"HTTP {r.status_code} body={r.text[:200]}")
-    except Exception as e:
-        record("S7b POST /awards/claim while in_progress (not ready) -> 400",
-               False, f"{type(e).__name__}: {e}")
+    # ----- S8: award_progress.points == sum credited -----
+    prog = requests.get(f"{BASE_URL}/awards/progress", headers=h, timeout=20).json()
+    final_points = prog.get("points")
+    credited = sum(r["points"] for r in rows if r.get("applied_to_prize"))
+    print(f"S8 final award_progress.points={final_points}, sum(credited ledger)={credited}")
+    log("S8 award_progress.points == sum of credited ledger rows (capped at 100)",
+        final_points == min(credited, 100),
+        f"progress={final_points} sum={credited}")
 
-    # --- Scenario 8 ---
-    try:
-        r = requests.post(f"{BASE_URL}/awards/choice", headers=h,
-                          json={"choice": "invalid"}, timeout=10)
-        ok = r.status_code == 422
-        record("S8 POST /awards/choice invalid -> 422", ok,
-               f"HTTP {r.status_code} body={r.text[:200]}")
-    except Exception as e:
-        record("S8 POST /awards/choice invalid -> 422", False,
-               f"{type(e).__name__}: {e}")
-
-    # --- Scenario 9 ---
-    try:
-        notice = None
-        if claim_id:
-            notice = db.admin_notices.find_one({"claim_id": claim_id})
-        if notice is None:
-            notice = db.admin_notices.find_one(
-                {"user_id": user_id, "claim_id": {"$exists": True}}
-            )
-        msg = (notice or {}).get("message", "")
-        ok = (
-            notice is not None
-            and claim_payload["full_name"] in msg
-            and claim_payload["address"] in msg
-            and claim_payload["phone"] in msg
-            and claim_payload["email"] in msg
-        )
-        record("S9 admin_notices doc contains full_name + address + phone (+ email)",
-               ok, f"notice_message={msg!r}")
-    except Exception as e:
-        record("S9 admin_notices doc contains full_name + address + phone (+ email)",
-               False, f"{type(e).__name__}: {e}")
-
-    # --- Summary ---
-    print("\n========== SUMMARY ==========")
-    passed = sum(1 for _, p, _ in results if p)
-    total = len(results)
-    for name, p, _ in results:
-        print(f"  [{'PASS' if p else 'FAIL'}] {name}")
-    print(f"\n{passed}/{total} scenarios passed")
-    return 0 if passed == total else 2
+    print("\n=== SUMMARY ===")
+    failed = [r for r in results if not r[1]]
+    for s, ok, d in results:
+        print(f"  [{'PASS' if ok else 'FAIL'}] {s} :: {d}")
+    print(f"\n{len(results) - len(failed)}/{len(results)} passed; {len(failed)} failed.")
+    return 0 if not failed else 1
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception:
-        traceback.print_exc()
-        sys.exit(1)
+    sys.exit(main())

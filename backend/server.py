@@ -154,6 +154,7 @@ class EnergyLogIn(BaseModel):
 class TaskCreateIn(BaseModel):
     title: str
     notify_interval_minutes: int = 10
+    duration_minutes: int = 10  # one of 5, 10, 15, 20, 25, 30 — determines points awarded on completion
 
 class TaskCheckIn(BaseModel):
     task_id: str
@@ -506,17 +507,22 @@ async def assessment_questions():
 # --- Symptom logs ---
 @api.post("/symptoms/log")
 async def log_symptoms(body: SymptomLogIn, user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
     log_id = f"slog_{uuid.uuid4().hex[:12]}"
     doc = {
         "log_id": log_id,
         "user_id": user["user_id"],
         "symptoms": body.symptoms,
         "note": body.note,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": now,
     }
     await db.symptom_logs.insert_one(doc)
     doc.pop("_id", None)
     doc["created_at"] = doc["created_at"].isoformat()
+    awarded = await _award_points(
+        user, "symptoms_log", _utc_day_key(now), points=2, cap_per_period=5
+    )
+    doc["points_awarded"] = awarded
     return doc
 
 
@@ -538,16 +544,21 @@ async def get_symptom_logs(days: int = 30, user: dict = Depends(get_current_user
 # --- Energy meter ---
 @api.post("/energy/log")
 async def log_energy(body: EnergyLogIn, user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
     log_id = f"elog_{uuid.uuid4().hex[:12]}"
     doc = {
         "log_id": log_id,
         "user_id": user["user_id"],
         "percent": body.percent,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": now,
     }
     await db.energy_logs.insert_one(doc)
     doc.pop("_id", None)
     doc["created_at"] = doc["created_at"].isoformat()
+    awarded = await _award_points(
+        user, "energy_log", _utc_day_key(now), points=1, cap_per_period=1
+    )
+    doc["points_awarded"] = awarded
     return doc
 
 
@@ -569,12 +580,15 @@ async def get_energy_logs(days: int = 30, user: dict = Depends(get_current_user)
 # --- Tasks ---
 @api.post("/tasks")
 async def create_task(body: TaskCreateIn, user: dict = Depends(get_current_user)):
+    allowed_durations = {5, 10, 15, 20, 25, 30}
+    duration = body.duration_minutes if body.duration_minutes in allowed_durations else 10
     task_id = f"task_{uuid.uuid4().hex[:12]}"
     doc = {
         "task_id": task_id,
         "user_id": user["user_id"],
         "title": body.title,
         "notify_interval_minutes": body.notify_interval_minutes,
+        "duration_minutes": duration,
         "started_at": None,
         "done_at": None,
         "status": "pending",
@@ -636,34 +650,19 @@ async def check_task(body: TaskCheckIn, user: dict = Depends(get_current_user)):
         {"task_id": body.task_id},
         {"$set": {"done_at": now, "status": "done"}},
     )
-    # Award progress: add 1 point to current award (if user has an active choice)
-    AWARD_GOAL = 100
-    award = await db.award_progress.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    if award and award.get("choice") and (award.get("status") or "in_progress") == "in_progress":
-        new_points = (award.get("points") or award.get("count") or 0) + 1
-        new_status = "ready_to_claim" if new_points >= AWARD_GOAL else "in_progress"
-        update = {
-            "$set": {
-                "points": new_points,
-                "last_increment": now,
-                "status": new_status,
-            },
-        }
-        await db.award_progress.update_one({"user_id": user["user_id"]}, update)
-        if new_status == "ready_to_claim" and not award.get("notified_admin"):
-            await db.admin_notices.insert_one(
-                {
-                    "notice_id": f"notice_{uuid.uuid4().hex[:10]}",
-                    "user_id": user["user_id"],
-                    "email": user["email"],
-                    "choice": award.get("choice"),
-                    "created_at": now,
-                    "message": f"User {_display_name(user)} ({user['email']}) reached 100 points and is ready to claim their {award.get('choice')} reward.",
-                }
-            )
-            await db.award_progress.update_one(
-                {"user_id": user["user_id"]}, {"$set": {"notified_admin": True}}
-            )
+    # Award points based on the task's duration (per-bucket daily cap of 5)
+    duration = int(task.get("duration_minutes") or 10)
+    if duration not in (5, 10, 15, 20, 25, 30):
+        duration = 10
+    points = 2 if duration >= 20 else 1
+    awarded = await _award_points(
+        user,
+        action=f"task_{duration}min",
+        period_key=_utc_day_key(now),
+        points=points,
+        cap_per_period=5,
+    )
+    return {"ok": True, "status": "done", "points_awarded": awarded}
 
     return {"ok": True, "status": "done"}
 
@@ -738,6 +737,10 @@ async def create_journal(body: JournalIn, user: dict = Depends(get_current_user)
     for k in ["timestamp", "created_at"]:
         if isinstance(doc.get(k), datetime):
             doc[k] = doc[k].isoformat()
+    awarded = await _award_points(
+        user, "journal", _utc_day_key(datetime.now(timezone.utc)), points=1, cap_per_period=1
+    )
+    doc["points_awarded"] = awarded
     return doc
 
 
@@ -783,6 +786,91 @@ async def delete_journal(entry_id: str, user: dict = Depends(get_current_user)):
 
 # --- Awards ---
 AWARD_GOAL = 100
+
+
+def _utc_day_key(ts: datetime) -> str:
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.strftime("%Y-%m-%d")
+
+
+def _utc_week_key(ts: datetime) -> str:
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    iso = ts.isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
+
+
+async def _award_points(
+    user: dict,
+    action: str,
+    period_key: str,
+    points: int,
+    cap_per_period: int = 1,
+):
+    """Award points for an action with per-period caps.
+
+    Records each award in `points_ledger` and increments the user's active
+    award progress (if status==in_progress). Triggers admin notice at 100.
+
+    Returns the number of points actually awarded (0 if cap reached or no
+    active prize).
+    """
+    if points <= 0:
+        return 0
+    now = datetime.now(timezone.utc)
+    user_id = user["user_id"]
+
+    # Cap check: count prior awards for this action in this period
+    prior = await db.points_ledger.count_documents(
+        {"user_id": user_id, "action": action, "period_key": period_key}
+    )
+    if prior >= cap_per_period:
+        return 0
+
+    # Only credit to active prize progress
+    award = await db.award_progress.find_one({"user_id": user_id}, {"_id": 0})
+    active = bool(award and award.get("choice") and (award.get("status") or "in_progress") == "in_progress")
+
+    await db.points_ledger.insert_one({
+        "user_id": user_id,
+        "action": action,
+        "period_key": period_key,
+        "points": points,
+        "applied_to_prize": active,
+        "created_at": now,
+    })
+
+    if not active:
+        return points  # still recorded but not credited to a prize
+
+    new_points = (award.get("points") or award.get("count") or 0) + points
+    capped_points = min(new_points, AWARD_GOAL)
+    new_status = "ready_to_claim" if capped_points >= AWARD_GOAL else "in_progress"
+    await db.award_progress.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "points": capped_points,
+            "last_increment": now,
+            "status": new_status,
+        }},
+    )
+    if new_status == "ready_to_claim" and not award.get("notified_admin"):
+        await db.admin_notices.insert_one({
+            "notice_id": f"notice_{uuid.uuid4().hex[:10]}",
+            "user_id": user_id,
+            "email": user["email"],
+            "choice": award.get("choice"),
+            "created_at": now,
+            "message": (
+                f"User {_display_name(user)} ({user['email']}) reached 100 points "
+                f"and is ready to claim their {award.get('choice')} reward."
+            ),
+        })
+        await db.award_progress.update_one(
+            {"user_id": user_id}, {"$set": {"notified_admin": True}}
+        )
+    return points
 
 
 @api.get("/awards/progress")
@@ -1359,6 +1447,11 @@ async def send_report(body: SendReportIn, user: dict = Depends(get_current_user)
         "sent": None,
         "not_configured": "Server is not configured to send email (RESEND_API_KEY missing). Report recorded.",
     }
+    awarded_points = 0
+    if send_status == "sent":
+        awarded_points = await _award_points(
+            user, "report_send", _utc_week_key(datetime.now(timezone.utc)), points=5, cap_per_period=1
+        )
     return {
         "ok": True,
         "report_id": report_id,
@@ -1370,6 +1463,7 @@ async def send_report(body: SendReportIn, user: dict = Depends(get_current_user)
         "status": send_status,
         "resend_id": resend_id,
         "note": note_map.get(send_status),
+        "points_awarded": awarded_points,
     }
 
 
