@@ -44,12 +44,20 @@ const FLOWER_IMAGES: Record<number, ImageSourcePropType> = {
   100: require("../../assets/prizes/flowers/100.png"),
 };
 
-function flowerImageForPoints(points: number): ImageSourcePropType {
-  if (points >= 100) return FLOWER_IMAGES[100];
-  if (points >= 75) return FLOWER_IMAGES[75];
-  if (points >= 50) return FLOWER_IMAGES[50];
-  if (points >= 25) return FLOWER_IMAGES[25];
-  return FLOWER_IMAGES[0];
+const TREASURE_IMAGES: Record<number, ImageSourcePropType> = {
+  0: require("../../assets/prizes/treasure_chest/0.png"),
+  25: require("../../assets/prizes/treasure_chest/25.png"),
+  50: require("../../assets/prizes/treasure_chest/50.png"),
+  75: require("../../assets/prizes/treasure_chest/75.png"),
+  100: require("../../assets/prizes/treasure_chest/100.png"),
+};
+
+function tierImage(set: Record<number, ImageSourcePropType>, points: number): ImageSourcePropType {
+  if (points >= 100) return set[100];
+  if (points >= 75) return set[75];
+  if (points >= 50) return set[50];
+  if (points >= 25) return set[25];
+  return set[0];
 }
 
 const PRIZE_META: Record<
@@ -146,7 +154,9 @@ export default function Rewards() {
         {progress.status === "ready_to_claim" && progress.choice && (
           <ReadyToClaimView
             choice={progress.choice as PrizeKey}
-            onClaim={() => router.push("/claim")}
+            onClaim={() =>
+              router.push(`/claim-options?category=${progress.choice}`)
+            }
           />
         )}
       </ScrollView>
@@ -307,15 +317,23 @@ function PrizeImage({
   if (prizeKey === "flowers") {
     return (
       <Image
-        source={flowerImageForPoints(points)}
+        source={tierImage(FLOWER_IMAGES, points)}
+        style={{ width: size, height: size }}
+        resizeMode="contain"
+      />
+    );
+  }
+  if (prizeKey === "treasure_chest") {
+    return (
+      <Image
+        source={tierImage(TREASURE_IMAGES, points)}
         style={{ width: size, height: size }}
         resizeMode="contain"
       />
     );
   }
   if (prizeKey === "candy") return <CandyJarSvg points={points} size={size} />;
-  if (prizeKey === "giftcard") return <EnvelopeSvg points={points} size={size} />;
-  return <TreasureChestSvg points={points} size={size} />;
+  return <EnvelopeSvg points={points} size={size} />;
 }
 
 function fillRatio(points: number): number {

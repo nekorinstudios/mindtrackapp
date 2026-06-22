@@ -177,6 +177,15 @@ class AwardClaimIn(BaseModel):
     address: str
     email: EmailStr
     phone: str
+    option_id: str
+
+
+class PrizeOptionIn(BaseModel):
+    category: Literal["flowers", "candy", "giftcard", "treasure_chest"]
+    name: Optional[str] = None
+    description: str
+    mime: str = "image/png"
+    image_base64: str
 
 class SendReportIn(BaseModel):
     doctor_email: EmailStr
@@ -956,12 +965,23 @@ async def claim_award(body: AwardClaimIn, user: dict = Depends(get_current_user)
             status_code=400,
             detail=f"You need {AWARD_GOAL - points} more points before you can claim this prize.",
         )
+    # Validate selected option exists and matches the user's prize category
+    option = await db.prize_options.find_one({"option_id": body.option_id}, {"_id": 0})
+    if not option:
+        raise HTTPException(status_code=400, detail="Selected prize option not found")
+    if option.get("category") != award.get("choice"):
+        raise HTTPException(
+            status_code=400,
+            detail="Selected option does not belong to your earned prize category",
+        )
 
     claim_id = f"claim_{uuid.uuid4().hex[:10]}"
     claim_doc = {
         "claim_id": claim_id,
         "user_id": user["user_id"],
         "choice": award.get("choice"),
+        "option_id": body.option_id,
+        "option_name": option.get("name") or option.get("description", "")[:60],
         "full_name": body.full_name.strip(),
         "address": body.address.strip(),
         "email": body.email.lower().strip(),
@@ -980,9 +1000,12 @@ async def claim_award(body: AwardClaimIn, user: dict = Depends(get_current_user)
             "email": user["email"],
             "choice": award.get("choice"),
             "claim_id": claim_id,
+            "option_id": body.option_id,
+            "option_name": claim_doc["option_name"],
             "created_at": now,
             "message": (
-                f"User {_display_name(user)} ({user['email']}) claimed their {award.get('choice')} prize. "
+                f"User {_display_name(user)} ({user['email']}) claimed their {award.get('choice')} prize "
+                f"(option: {claim_doc['option_name']}). "
                 f"Ship to: {body.full_name} · {body.address} · {body.phone} · {body.email}"
             ),
         }
@@ -1003,6 +1026,64 @@ async def claim_award(body: AwardClaimIn, user: dict = Depends(get_current_user)
     )
 
     return {"ok": True, "claim_id": claim_id}
+
+
+# --- Prize options catalog (admin uploads, users browse on claim) ---
+@api.get("/prizes/options")
+async def list_prize_options(
+    category: str,
+    user: dict = Depends(get_current_user),
+):
+    if category not in {"flowers", "candy", "giftcard", "treasure_chest"}:
+        raise HTTPException(status_code=400, detail="Invalid category")
+    cursor = db.prize_options.find(
+        {"category": category, "active": {"$ne": False}}, {"_id": 0}
+    ).sort("created_at", -1)
+    items = []
+    async for d in cursor:
+        if isinstance(d.get("created_at"), datetime):
+            d["created_at"] = d["created_at"].isoformat()
+        items.append(d)
+    return items
+
+
+@api.post("/prizes/options")
+async def create_prize_option(
+    body: PrizeOptionIn, user: dict = Depends(get_current_user)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not body.description.strip():
+        raise HTTPException(status_code=400, detail="Description is required")
+    if not body.image_base64:
+        raise HTTPException(status_code=400, detail="Image is required")
+    option_id = f"po_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    doc = {
+        "option_id": option_id,
+        "category": body.category,
+        "name": (body.name or "").strip() or None,
+        "description": body.description.strip(),
+        "mime": body.mime or "image/png",
+        "image_base64": body.image_base64,
+        "active": True,
+        "created_at": now,
+        "created_by": user["user_id"],
+    }
+    await db.prize_options.insert_one(doc)
+    return {"ok": True, "option_id": option_id}
+
+
+@api.delete("/prizes/options/{option_id}")
+async def delete_prize_option(
+    option_id: str, user: dict = Depends(get_current_user)
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    r = await db.prize_options.delete_one({"option_id": option_id})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Option not found")
+    return {"ok": True}
 
 
 # --- Billing / Stripe subscription ---

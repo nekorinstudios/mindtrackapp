@@ -318,3 +318,30 @@ agent_communication:
     message: "Test the points system against http://localhost:8001/api with a fresh registered user. Before any scenario, POST /api/awards/choice {choice:'flowers'} so progress is in_progress. Scenarios: (1) POST /api/energy/log {percent:50} → response should have points_awarded:1. GET /api/awards/progress → points:1. (2) POST /api/energy/log {percent:60} again same day → points_awarded:0 (capped). (3) POST /api/symptoms/log {symptoms:['Restless']} 5 times → first 4 should be points_awarded:2, 5th points_awarded:2 (cap=5 means 5 awards allowed), 6th should be 0. GET progress → points should be 1+10=11. (4) Create a 5-min task: POST /api/tasks {title:'X', duration_minutes:5}, then POST /api/tasks/check {task_id, action:'done'} → points_awarded:1. Wait, the anti-cheat 10-min gap will prevent rapid task completion. Bypass it via pymongo db.tasks.update_many({user_id:...}, {\$set:{done_at:None,status:'pending'}}) between tries OR just test 1 task per duration. Test 5 separate task durations (5/10/15/20/25/30) — verify 5,10,15min give +1 and 20,25,30min give +2 each. (5) POST /api/journal {text:'hi'} → points_awarded:1. Second journal same day → points_awarded:0. (6) POST /api/reports/send {doctor_email:'nekorinstudios@gmail.com', days:30}: if status='sent' → points_awarded:5; if status='failed' (likely due to test-mode Resend restriction) → endpoint returns 502, fine, just verify no points were credited. Second send same week → 0. (7) Verify db.points_ledger has rows for each action with period_key. (8) Confirm award_progress.points reflects the sum of credited awards. Do NOT test frontend."
   - agent: "testing"
     message: "Points system PASSED 15/15 sub-checks across all 8 scenarios. Fresh user (points_tester_a702d609@test.dev), POST /awards/choice flowers → in_progress. (S1) energy/log #1 → points_awarded:1; progress.points=1. (S2) energy/log #2 same day → points_awarded:0 (cap). (S3) 6× symptoms/log → [2,2,2,2,2,0] exactly (cap=5/day); progress.points=11. (S4) Each task duration tested by resetting done_at via pymongo between calls → {5:1, 10:1, 15:1, 20:2, 25:2, 30:2} exact mapping; progress.points=20. (S5) journal #1 → points_awarded:1; journal #2 same day → points_awarded:0; progress.points=21. (S6) reports/send to nekorinstudios@gmail.com succeeded (Resend status='sent', resend_id returned) → points_awarded:5; second send same ISO week → points_awarded:0 (weekly cap). (S7) db.points_ledger has exactly 14 rows: energy_log×1, symptoms_log×5, task_{5,10,15,20,25,30}min×1 each, journal×1 (all period_key='2026-05-30'), report_send×1 (period_key='2026-W22'). All applied_to_prize=True. (S8) Final award_progress.points=26 == sum of credited ledger rows (1+10+9+1+5=26). Caps, action strings, period keys (daily/weekly), and progress math all working correctly. No code fixes needed."
+
+backend:
+  - task: "Admin prize options catalog + claim flow with option_id"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added prize_options collection + endpoints. GET /api/prizes/options?category=X (any auth user, returns active options). POST /api/prizes/options (admin only, body PrizeOptionIn with category/name/description/mime/image_base64). DELETE /api/prizes/options/{option_id} (admin only). Updated AwardClaimIn to require option_id. /api/awards/claim now validates the option exists AND its category matches user's award_progress.choice. Claim records persist option_id/option_name and admin notice message includes the chosen option."
+
+metadata:
+  test_sequence: 6
+
+test_plan:
+  current_focus:
+    - "Admin prize options catalog + claim flow with option_id"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Test new prize-options endpoints at http://localhost:8001/api. Admin creds in /app/memory/test_credentials.md (admin@mindtrack.app / Admin@12345). Scenarios: (1) GET /api/prizes/options?category=flowers as a regular registered user → 200 with empty list. (2) POST /api/prizes/options as REGULAR user with valid body → 403 Admin only. (3) POST /api/prizes/options as admin with body {category:'flowers', name:'Pastel mix', description:'Soft pastel bouquet of roses and tulips', mime:'image/png', image_base64:'<3x3 PNG base64 from a tiny test PNG>'} → 200 {ok:true, option_id}. (4) GET /api/prizes/options?category=flowers as user → 200 with 1 item containing the description. (5) GET ?category=invalid → 400. (6) Create a second user, register, POST /api/awards/choice {choice:'flowers'}, force-bump points to 100 via pymongo (db.award_progress.update_one), then POST /api/awards/claim with {full_name, address, email, phone, option_id: <from step 3>} → 200 ok. (7) Same user picks a new choice and reaches 100 again; POST /api/awards/claim with option_id from a DIFFERENT category (candy) → 400 'Selected option does not belong to your earned prize category'. (8) Same scenario with option_id='nonexistent' → 400 'Selected prize option not found'. (9) DELETE /api/prizes/options/{option_id} as regular user → 403; as admin → 200. (10) Verify db.award_claims docs contain option_id and option_name; admin_notices message includes the option name. Do NOT test frontend."

@@ -171,6 +171,33 @@ export default function Admin() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.card}>
+          <Text style={styles.h2}>Prize options</Text>
+          <Text style={styles.sub}>
+            Pick a category to manage the prize options users see when they claim.
+          </Text>
+          <View style={styles.prizeBtnGrid}>
+            {([
+              { key: "flowers", label: "Flower Bouquet", icon: "flower-outline" as const },
+              { key: "candy", label: "Jar of Candy", icon: "ice-cream-outline" as const },
+              { key: "giftcard", label: "Envelope Surprise", icon: "mail-outline" as const },
+              { key: "treasure_chest", label: "Treasure Chest", icon: "cube-outline" as const },
+            ]).map((c) => (
+              <TouchableOpacity
+                key={c.key}
+                testID={`admin-prize-${c.key}`}
+                style={styles.prizeBtn}
+                onPress={() => router.push(`/admin-prize?category=${c.key}`)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name={c.icon} size={22} color={COLORS.brand} />
+                <Text style={styles.prizeBtnText}>{c.label}</Text>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.text3} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         <Text style={[styles.h2, { marginTop: 18 }]}>Tracks</Text>
         {tracks.length === 0 ? (
           <Text style={styles.sub}>No tracks yet.</Text>
@@ -241,6 +268,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   btnText: { color: "#0B0B0B", fontWeight: "700" },
+  prizeBtnGrid: { gap: 8, marginTop: 12 },
+  prizeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.bg,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+  },
+  prizeBtnText: { color: COLORS.text, fontWeight: "700", flex: 1, fontSize: 15 },
   row: {
     flexDirection: "row",
     alignItems: "center",

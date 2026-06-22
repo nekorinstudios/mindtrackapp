@@ -12,7 +12,7 @@ import {
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, COLORS, formatApiError } from "../src/api";
 import { useAuth } from "../src/auth";
@@ -20,6 +20,7 @@ import { useAuth } from "../src/auth";
 export default function ClaimPrize() {
   const router = useRouter();
   const { user } = useAuth();
+  const { option_id } = useLocalSearchParams<{ option_id?: string }>();
   const initialName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
     user?.name ||
@@ -33,6 +34,10 @@ export default function ClaimPrize() {
 
   const submit = async () => {
     setError("");
+    if (!option_id) {
+      setError("No prize option selected. Go back and pick one.");
+      return;
+    }
     if (!fullName.trim()) return setError("Please enter your full name");
     if (!address.trim()) return setError("Please enter your shipping address");
     if (!email.trim()) return setError("Please enter your email");
@@ -40,6 +45,7 @@ export default function ClaimPrize() {
     setSubmitting(true);
     try {
       await api.post("/awards/claim", {
+        option_id,
         full_name: fullName.trim(),
         address: address.trim(),
         email: email.trim(),
