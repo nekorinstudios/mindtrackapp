@@ -24,6 +24,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, COLORS, formatApiError } from "../../src/api";
+import { useAuth } from "../../src/auth";
 
 type Status = "picking" | "in_progress" | "ready_to_claim";
 type Progress = {
@@ -113,6 +114,8 @@ export default function Rewards() {
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const load = useCallback(async () => {
     try {
@@ -163,6 +166,8 @@ export default function Rewards() {
             {progress.points} {progress.points === 1 ? "point" : "points"} earned
           </Text>
         </View>
+
+        {isAdmin && <AdminPanel onOpen={(cat) => router.push(`/admin-prize?category=${cat}`)} />}
 
         {progress.status === "picking" && (
           <PickerView onChoose={choosePrize} disabled={picking} />
@@ -228,6 +233,35 @@ function TrophyRoom({ claims }: { claims: Claim[] }) {
           </View>
         </View>
       ))}
+    </View>
+  );
+}
+
+/* ---------- Admin panel — manage prize options inline ---------- */
+function AdminPanel({ onOpen }: { onOpen: (cat: PrizeKey) => void }) {
+  return (
+    <View style={styles.adminPanel}>
+      <View style={styles.adminHeader}>
+        <Ionicons name="settings-outline" size={16} color="#0B0B0B" />
+        <Text style={styles.adminHeaderText}>Admin · Manage prize options</Text>
+      </View>
+      <Text style={styles.adminSub}>
+        Tap a category to upload images and descriptions. Users see your uploads when they claim.
+      </Text>
+      <View style={styles.adminGrid}>
+        {PRIZES_ORDER.map((key) => (
+          <TouchableOpacity
+            key={key}
+            testID={`rewards-admin-edit-${key}`}
+            style={styles.adminBtn}
+            onPress={() => onOpen(key)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="pencil" size={14} color={COLORS.text} />
+            <Text style={styles.adminBtnText}>{PRIZE_META[key].label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </View>
   );
 }
@@ -544,6 +578,27 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   pointsBadgeText: { color: "#0B0B0B", fontWeight: "800", fontSize: 14 },
+
+  adminPanel: {
+    backgroundColor: COLORS.brand,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  adminHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  adminHeaderText: { color: "#0B0B0B", fontWeight: "800", fontSize: 14 },
+  adminSub: { color: "#0B0B0B", fontSize: 12, opacity: 0.78, marginBottom: 10 },
+  adminGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  adminBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 99,
+  },
+  adminBtnText: { color: "#0B0B0B", fontWeight: "700", fontSize: 13 },
 
   howCard: {
     backgroundColor: COLORS.bg2,
