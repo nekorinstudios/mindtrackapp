@@ -322,26 +322,30 @@ agent_communication:
 backend:
   - task: "Admin prize options catalog + claim flow with option_id"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Added prize_options collection + endpoints. GET /api/prizes/options?category=X (any auth user, returns active options). POST /api/prizes/options (admin only, body PrizeOptionIn with category/name/description/mime/image_base64). DELETE /api/prizes/options/{option_id} (admin only). Updated AwardClaimIn to require option_id. /api/awards/claim now validates the option exists AND its category matches user's award_progress.choice. Claim records persist option_id/option_name and admin notice message includes the chosen option."
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED 13/13 sub-checks (all 10 review scenarios) against http://localhost:8001/api. Admin login admin@mindtrack.app / Admin@12345 OK (role=admin). (S1) Fresh user GET /prizes/options?category=flowers → 200 [] (after clearing pre-existing flowers options). (S2) Regular user POST /prizes/options → 403 detail='Admin only'. (S3) Admin POST /prizes/options {category:'flowers', name:'Pastel mix', description:'Soft pastel bouquet of roses and tulips', mime:'image/png', image_base64:<tiny 1x1 PNG>} → 200 {ok:true, option_id:'po_9fe192ef1e2b'}. (S4) Regular user GET /prizes/options?category=flowers → 200 [1 item] with keys [option_id, category='flowers', name='Pastel mix', description='Soft pastel bouquet of roses and tulips', mime, image_base64, active, created_at, created_by]. (S5) GET ?category=invalid → 400 detail='Invalid category'. (S6) Second user registered, POST /awards/choice {choice:'flowers'} → 200, force-bumped via pymongo {points:100, status:'ready_to_claim'}, POST /awards/claim {full_name:'Test User', address:'123 Main St', email:'test@example.com', phone:'5551234', option_id:<S3>} → 200 {ok:true, claim_id:'claim_e874a31081'}; immediately GET /awards/progress → {status:'picking', choice:null, points:0, last_claim_id, last_claim_at, goal:100} ✓. (S7) Same user POST /awards/choice {choice:'candy'} → 200, force-bumped to ready_to_claim, POST /awards/claim with SAME flowers option_id → 400 detail='Selected option does not belong to your earned prize category'. (S8) Still candy/ready_to_claim, POST /awards/claim with option_id='po_nonexistent' → 400 detail='Selected prize option not found'. (S9a) DELETE /prizes/options/{option_id} as regular user → 403 'Admin only'. (S9b) DELETE as admin → 200 {ok:true}. (S10a) db.award_claims has claim doc with option_id='po_9fe192ef1e2b' AND option_name='Pastel mix' ✓. (S10b) db.admin_notices has doc whose message='User Prize Tester (prizetest_xxx@test.dev) claimed their flowers prize (option: Pastel mix). Ship to: Test User · 123 Main St · 5551234 · test@example.com' — includes option name 'Pastel mix' ✓. All endpoints, validation rules, persistence, and admin-notice message format working correctly. No backend code fixes needed."
 
 metadata:
-  test_sequence: 6
+  test_sequence: 7
 
 test_plan:
-  current_focus:
-    - "Admin prize options catalog + claim flow with option_id"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
   - agent: "main"
-    message: "Test new prize-options endpoints at http://localhost:8001/api. Admin creds in /app/memory/test_credentials.md (admin@mindtrack.app / Admin@12345). Scenarios: (1) GET /api/prizes/options?category=flowers as a regular registered user → 200 with empty list. (2) POST /api/prizes/options as REGULAR user with valid body → 403 Admin only. (3) POST /api/prizes/options as admin with body {category:'flowers', name:'Pastel mix', description:'Soft pastel bouquet of roses and tulips', mime:'image/png', image_base64:'<3x3 PNG base64 from a tiny test PNG>'} → 200 {ok:true, option_id}. (4) GET /api/prizes/options?category=flowers as user → 200 with 1 item containing the description. (5) GET ?category=invalid → 400. (6) Create a second user, register, POST /api/awards/choice {choice:'flowers'}, force-bump points to 100 via pymongo (db.award_progress.update_one), then POST /api/awards/claim with {full_name, address, email, phone, option_id: <from step 3>} → 200 ok. (7) Same user picks a new choice and reaches 100 again; POST /api/awards/claim with option_id from a DIFFERENT category (candy) → 400 'Selected option does not belong to your earned prize category'. (8) Same scenario with option_id='nonexistent' → 400 'Selected prize option not found'. (9) DELETE /api/prizes/options/{option_id} as regular user → 403; as admin → 200. (10) Verify db.award_claims docs contain option_id and option_name; admin_notices message includes the option name. Do NOT test frontend."
+    message: "Test new prize-options endpoints at http://localhost:8001/api. Admin creds in /app/memory/test_credentials.md (admin@mindtrack.app / Admin@12345). Scenarios 1-10 as described."
+  - agent: "testing"
+    message: "Prize options catalog + claim flow PASSED 13/13 sub-checks across all 10 review scenarios. (S1) GET options?category=flowers as fresh user → 200 []. (S2) Regular POST → 403 'Admin only'. (S3) Admin POST {category:'flowers', name:'Pastel mix', description, mime:'image/png', image_base64:<1x1 PNG>} → 200 {ok:true, option_id:'po_9fe192ef1e2b'}. (S4) GET options?category=flowers → 200 with 1 item containing option_id, category='flowers', description='Soft pastel bouquet of roses and tulips' (plus name/mime/image_base64/active/created_at/created_by). (S5) GET ?category=invalid → 400 'Invalid category'. (S6) After choice=flowers + force-bump 100/ready_to_claim, POST /awards/claim with valid option_id → 200 {ok:true, claim_id:'claim_e874a31081'}; subsequent /awards/progress reset to {status:'picking', choice:null, points:0, goal:100, last_claim_id, last_claim_at}. (S7) Same user re-picked candy, force-bumped, claim with flowers option_id → 400 'Selected option does not belong to your earned prize category' (progress NOT reset on this failure, so user remained ready_to_claim for candy). (S8) Then claim with option_id='po_nonexistent' → 400 'Selected prize option not found'. (S9) DELETE option as regular user → 403; as admin → 200 {ok:true}. (S10) MongoDB verified: db.award_claims has claim doc with option_id+option_name='Pastel mix'; db.admin_notices doc message includes 'option: Pastel mix' and full shipping details. State machine + option validation + persistence + admin messaging all working end-to-end. No code fixes needed."
