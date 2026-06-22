@@ -52,6 +52,14 @@ const TREASURE_IMAGES: Record<number, ImageSourcePropType> = {
   100: require("../../assets/prizes/treasure_chest/100.png"),
 };
 
+const CANDY_IMAGES: Record<number, ImageSourcePropType> = {
+  0: require("../../assets/prizes/candy/0.png"),
+  25: require("../../assets/prizes/candy/25.png"),
+  50: require("../../assets/prizes/candy/50.png"),
+  75: require("../../assets/prizes/candy/75.png"),
+  100: require("../../assets/prizes/candy/100.png"),
+};
+
 function tierImage(set: Record<number, ImageSourcePropType>, points: number): ImageSourcePropType {
   if (points >= 100) return set[100];
   if (points >= 75) return set[75];
@@ -332,7 +340,15 @@ function PrizeImage({
       />
     );
   }
-  if (prizeKey === "candy") return <CandyJarSvg points={points} size={size} />;
+  if (prizeKey === "candy") {
+    return (
+      <Image
+        source={tierImage(CANDY_IMAGES, points)}
+        style={{ width: size, height: size }}
+        resizeMode="contain"
+      />
+    );
+  }
   return <EnvelopeSvg points={points} size={size} />;
 }
 
