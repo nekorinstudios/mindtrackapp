@@ -136,6 +136,21 @@ class UserOut(BaseModel):
     subscription_status: Optional[str] = None  # trialing|active|past_due|canceled|expired
     trial_end: Optional[datetime] = None
     has_access: bool = False
+    email_verified: bool = False
+
+
+class DoctorIn(BaseModel):
+    name: str
+    email: EmailStr
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str
 
 class AuthOut(BaseModel):
     access_token: str
@@ -358,6 +373,7 @@ def _user_out_dict(u: dict) -> dict:
         "subscription_status": sub_status,
         "trial_end": trial_end,
         "has_access": has_access,
+        "email_verified": bool(u.get("email_verified")),
     }
 
 
@@ -1084,6 +1100,273 @@ async def delete_prize_option(
     if r.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Option not found")
     return {"ok": True}
+
+
+# --- Streak: consecutive calendar days with any activity ---
+@api.get("/streak")
+async def get_streak(user: dict = Depends(get_current_user)):
+    user_id = user["user_id"]
+    since = datetime.now(timezone.utc) - timedelta(days=90)
+    days = set()
+    async for d in db.energy_logs.find({"user_id": user_id, "created_at": {"$gte": since}}, {"created_at": 1, "_id": 0}):
+        ts = d.get("created_at")
+        if isinstance(ts, datetime):
+            days.add(ts.strftime("%Y-%m-%d"))
+    async for d in db.symptom_logs.find({"user_id": user_id, "created_at": {"$gte": since}}, {"created_at": 1, "_id": 0}):
+        ts = d.get("created_at")
+        if isinstance(ts, datetime):
+            days.add(ts.strftime("%Y-%m-%d"))
+    async for d in db.journal.find({"user_id": user_id, "timestamp": {"$gte": since}}, {"timestamp": 1, "_id": 0}):
+        ts = d.get("timestamp")
+        if isinstance(ts, datetime):
+            days.add(ts.strftime("%Y-%m-%d"))
+    async for d in db.tasks.find({"user_id": user_id, "done_at": {"$gte": since}}, {"done_at": 1, "_id": 0}):
+        ts = d.get("done_at")
+        if isinstance(ts, datetime):
+            days.add(ts.strftime("%Y-%m-%d"))
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    cur = today if today in days else (yesterday if yesterday in days else None)
+    current = 0
+    if cur:
+        d_iter = datetime.strptime(cur, "%Y-%m-%d")
+        while d_iter.strftime("%Y-%m-%d") in days:
+            current += 1
+            d_iter -= timedelta(days=1)
+
+    sorted_days = sorted(days)
+    longest = 0
+    if sorted_days:
+        run = 1
+        longest = 1
+        for i in range(1, len(sorted_days)):
+            prev = datetime.strptime(sorted_days[i - 1], "%Y-%m-%d")
+            curd = datetime.strptime(sorted_days[i], "%Y-%m-%d")
+            if (curd - prev).days == 1:
+                run += 1
+                longest = max(longest, run)
+            else:
+                run = 1
+    return {
+        "current_streak": current,
+        "longest_streak": longest,
+        "active_today": today in days,
+    }
+
+
+# --- Past claims / Trophy room ---
+@api.get("/awards/claims")
+async def list_claims(user: dict = Depends(get_current_user)):
+    cursor = db.award_claims.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1)
+    items = []
+    async for c in cursor:
+        if isinstance(c.get("created_at"), datetime):
+            c["created_at"] = c["created_at"].isoformat()
+        if c.get("option_id"):
+            opt = await db.prize_options.find_one(
+                {"option_id": c["option_id"]},
+                {"_id": 0, "image_base64": 1, "mime": 1, "description": 1, "name": 1},
+            )
+            if opt:
+                c["option_image_base64"] = opt.get("image_base64")
+                c["option_mime"] = opt.get("mime") or "image/png"
+                c["option_description"] = opt.get("description")
+        items.append(c)
+    return items
+
+
+# --- Saved doctors ---
+@api.get("/doctors")
+async def list_doctors(user: dict = Depends(get_current_user)):
+    cursor = db.doctors.find({"user_id": user["user_id"]}, {"_id": 0}).sort("last_used_at", -1)
+    items = []
+    async for d in cursor:
+        for k in ["created_at", "last_used_at"]:
+            if isinstance(d.get(k), datetime):
+                d[k] = d[k].isoformat()
+        items.append(d)
+    return items
+
+
+@api.post("/doctors")
+async def create_doctor(body: DoctorIn, user: dict = Depends(get_current_user)):
+    name = body.name.strip()
+    email = body.email.lower().strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Doctor name is required")
+    existing = await db.doctors.find_one({"user_id": user["user_id"], "email": email})
+    now = datetime.now(timezone.utc)
+    if existing:
+        await db.doctors.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"name": name, "last_used_at": now}},
+        )
+        return {"ok": True, "doctor_id": existing["doctor_id"]}
+    doctor_id = f"doc_{uuid.uuid4().hex[:10]}"
+    await db.doctors.insert_one({
+        "doctor_id": doctor_id,
+        "user_id": user["user_id"],
+        "name": name,
+        "email": email,
+        "created_at": now,
+        "last_used_at": now,
+    })
+    return {"ok": True, "doctor_id": doctor_id}
+
+
+@api.delete("/doctors/{doctor_id}")
+async def delete_doctor(doctor_id: str, user: dict = Depends(get_current_user)):
+    r = await db.doctors.delete_one({"doctor_id": doctor_id, "user_id": user["user_id"]})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    return {"ok": True}
+
+
+# --- Forgot password / Email verification ---
+async def _send_password_reset_email(user: dict, code: str):
+    if not RESEND_API_KEY:
+        return False
+    name = _display_name(user)
+    html = f"""
+    <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f3f4f6;padding:24px;">
+      <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:14px;padding:24px;">
+        <h2 style="color:#111827;margin:0 0 8px 0;">Hi {name},</h2>
+        <p style="color:#374151;line-height:1.5;">We received a request to reset your MindTrack password. Use this code to set a new one:</p>
+        <div style="font-size:32px;font-weight:800;letter-spacing:8px;text-align:center;color:#4F8FF7;background:#eff6ff;padding:18px;border-radius:12px;margin:16px 0;">{code}</div>
+        <p style="color:#6b7280;font-size:13px;line-height:1.5;">This code expires in 30 minutes. If you didn't request a reset, you can ignore this email.</p>
+      </div>
+    </div>
+    """
+    try:
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from": f"MindTrack <{SENDER_EMAIL}>",
+                "to": [user["email"]],
+                "subject": "Reset your MindTrack password",
+                "html": html,
+            },
+        )
+        return True
+    except Exception as e:
+        logging.getLogger("uvicorn.error").error(f"reset email failed: {e}")
+        return False
+
+
+async def _send_verification_email(user: dict, code: str):
+    if not RESEND_API_KEY:
+        return False
+    name = _display_name(user)
+    html = f"""
+    <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f3f4f6;padding:24px;">
+      <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:14px;padding:24px;">
+        <h2 style="color:#111827;margin:0 0 8px 0;">Welcome, {name}!</h2>
+        <p style="color:#374151;line-height:1.5;">Confirm your email to unlock everything in MindTrack:</p>
+        <div style="font-size:32px;font-weight:800;letter-spacing:8px;text-align:center;color:#4F8FF7;background:#eff6ff;padding:18px;border-radius:12px;margin:16px 0;">{code}</div>
+        <p style="color:#6b7280;font-size:13px;line-height:1.5;">Enter this 6-digit code in the app to verify your email. Code expires in 24 hours.</p>
+      </div>
+    </div>
+    """
+    try:
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from": f"MindTrack <{SENDER_EMAIL}>",
+                "to": [user["email"]],
+                "subject": "Verify your MindTrack email",
+                "html": html,
+            },
+        )
+        return True
+    except Exception as e:
+        logging.getLogger("uvicorn.error").error(f"verify email failed: {e}")
+        return False
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordIn):
+    email = body.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    if user:
+        import secrets as _secrets
+        code = f"{_secrets.randbelow(900_000) + 100_000}"
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {
+                "reset_code": code,
+                "reset_code_expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
+            }},
+        )
+        await _send_password_reset_email(user, code)
+    return {"ok": True, "message": "If that email exists, a reset code has been sent."}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordIn):
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    code = body.token.strip()
+    user = await db.users.find_one({"reset_code": code})
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+    expires = user.get("reset_code_expires_at")
+    if isinstance(expires, datetime):
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Reset code has expired")
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {
+            "$set": {"password_hash": hash_password(body.new_password)},
+            "$unset": {"reset_code": "", "reset_code_expires_at": ""},
+        },
+    )
+    return {"ok": True, "message": "Password reset. You can now sign in with your new password."}
+
+
+@api.post("/auth/send-verification")
+async def send_verification(user: dict = Depends(get_current_user)):
+    if user.get("email_verified"):
+        return {"ok": True, "already_verified": True}
+    import secrets as _secrets
+    code = f"{_secrets.randbelow(900_000) + 100_000}"
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "verification_code": code,
+            "verification_code_expires_at": datetime.now(timezone.utc) + timedelta(hours=24),
+        }},
+    )
+    sent = await _send_verification_email(user, code)
+    return {"ok": True, "sent": sent}
+
+
+@api.post("/auth/verify-email")
+async def verify_email(body: dict, user: dict = Depends(get_current_user)):
+    code = (body.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code is required")
+    if code != user.get("verification_code"):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+    expires = user.get("verification_code_expires_at")
+    if isinstance(expires, datetime):
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Verification code has expired")
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {
+            "$set": {"email_verified": True},
+            "$unset": {"verification_code": "", "verification_code_expires_at": ""},
+        },
+    )
+    return {"ok": True}
+
+
+
 
 
 # --- Billing / Stripe subscription ---

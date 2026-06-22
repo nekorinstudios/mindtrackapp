@@ -1,244 +1,411 @@
+"""Backend tests for MindTrack new endpoints (May 2026).
+
+Covers 5 scenario groups (Streak, Trophy Room, Doctors CRUD, Forgot Password,
+Email Verification) per the latest review_request.
+
+Run from /app:
+    python /app/backend_test.py
 """
-Backend test for: Admin prize options catalog + claim flow with option_id.
-10 scenarios per review request.
-Targets http://localhost:8001/api.
-Admin: admin@mindtrack.app / Admin@12345
-"""
-import base64
+
 import os
 import sys
 import uuid
+import base64
 import time
 import requests
 from pymongo import MongoClient
-from dotenv import load_dotenv
-
-load_dotenv("/app/backend/.env")
 
 API = "http://localhost:8001/api"
 ADMIN_EMAIL = "admin@mindtrack.app"
-ADMIN_PASS = "Admin@12345"
+ADMIN_PASSWORD = "Admin@12345"
 
-mongo = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
+# 1x1 transparent PNG
+TINY_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
+)
 
-results = []  # list of (label, pass_bool, detail)
+db = MongoClient("mongodb://localhost:27017")["mental_health_app"]
+
+PASS, FAIL = "PASS", "FAIL"
+results = []
 
 
-def record(label, ok, detail=""):
-    results.append((label, ok, detail))
-    icon = "PASS" if ok else "FAIL"
-    print(f"[{icon}] {label} :: {detail}")
+def log(name, status, detail=""):
+    results.append((name, status, detail))
+    icon = "✅" if status == PASS else "❌"
+    print(f"{icon} [{status}] {name}")
+    if detail:
+        print(f"     ↳ {detail}")
 
 
-def register_user(suffix=""):
-    suf = suffix or uuid.uuid4().hex[:8]
-    body = {
-        "email": f"prizetest_{suf}@test.dev",
-        "username": f"prize_{suf}",
-        "password": "Test@12345",
-        "first_name": "Prize",
-        "last_name": "Tester",
+def register_fresh(prefix="user"):
+    suffix = uuid.uuid4().hex[:8]
+    email = f"{prefix}_{suffix}@test.dev"
+    username = f"{prefix}_{suffix}"
+    password = "Pa$$w0rd123"
+    r = requests.post(
+        f"{API}/auth/register",
+        json={
+            "email": email,
+            "username": username,
+            "password": password,
+            "first_name": prefix.capitalize(),
+            "last_name": "Tester",
+        },
+        timeout=20,
+    )
+    assert r.status_code == 200, f"register failed: {r.status_code} {r.text}"
+    j = r.json()
+    return {
+        "token": j["access_token"],
+        "user_id": j["user"]["user_id"],
+        "email": email,
+        "username": username,
+        "password": password,
+        "headers": {"Authorization": f"Bearer {j['access_token']}"},
     }
-    r = requests.post(f"{API}/auth/register", json=body, timeout=15)
-    if r.status_code != 200:
-        raise RuntimeError(f"register failed {r.status_code} {r.text}")
-    data = r.json()
-    return data["access_token"], data["user"]
 
 
-def admin_login():
+def login_admin():
     r = requests.post(
         f"{API}/auth/login",
-        json={"identifier": ADMIN_EMAIL, "password": ADMIN_PASS},
+        json={"identifier": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+        timeout=20,
+    )
+    assert r.status_code == 200, f"admin login failed: {r.status_code} {r.text}"
+    j = r.json()
+    return {"token": j["access_token"], "headers": {"Authorization": f"Bearer {j['access_token']}"}}
+
+
+# ---------------- SCENARIO 1: Streak ----------------
+def scenario_streak():
+    print("\n=== Scenario 1: Streak ===")
+    u = register_fresh("streak")
+
+    r = requests.get(f"{API}/streak", headers=u["headers"], timeout=15)
+    if r.status_code != 200:
+        log("S1.1 GET /streak fresh", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    j = r.json()
+    ok = j.get("current_streak") == 0 and j.get("longest_streak") == 0 and j.get("active_today") is False
+    log(
+        "S1.1 GET /streak fresh user",
+        PASS if ok else FAIL,
+        f"HTTP 200 body={j}",
+    )
+
+    r = requests.post(
+        f"{API}/energy/log", json={"percent": 50}, headers=u["headers"], timeout=15
+    )
+    if r.status_code != 200:
+        log("S1.2 POST /energy/log", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    log("S1.2 POST /energy/log {percent:50}", PASS, f"HTTP 200 points_awarded={r.json().get('points_awarded')}")
+
+    r = requests.get(f"{API}/streak", headers=u["headers"], timeout=15)
+    if r.status_code != 200:
+        log("S1.3 GET /streak after log", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    j = r.json()
+    ok = j.get("current_streak") == 1 and j.get("active_today") is True
+    log(
+        "S1.3 GET /streak after energy log",
+        PASS if ok else FAIL,
+        f"HTTP 200 body={j}",
+    )
+
+
+# ---------------- SCENARIO 2: Trophy room ----------------
+def scenario_trophy_room():
+    print("\n=== Scenario 2: Trophy Room ===")
+    u = register_fresh("trophy")
+    admin = login_admin()
+
+    # GET claims fresh → []
+    r = requests.get(f"{API}/awards/claims", headers=u["headers"], timeout=15)
+    if r.status_code != 200:
+        log("S2.1 GET /awards/claims fresh", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    body = r.json()
+    log(
+        "S2.1 GET /awards/claims fresh user",
+        PASS if body == [] else FAIL,
+        f"HTTP 200 body={body}",
+    )
+
+    # admin creates prize option
+    r = requests.post(
+        f"{API}/prizes/options",
+        json={
+            "category": "flowers",
+            "name": "Rose bouquet",
+            "description": "Twelve fresh red roses",
+            "mime": "image/png",
+            "image_base64": TINY_PNG_B64,
+        },
+        headers=admin["headers"],
         timeout=15,
     )
     if r.status_code != 200:
-        raise RuntimeError(f"admin login failed {r.status_code} {r.text}")
-    data = r.json()
-    return data["access_token"], data["user"]
+        log("S2.2 admin POST /prizes/options", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    option_id = r.json().get("option_id")
+    log("S2.2 admin POST /prizes/options", PASS, f"HTTP 200 option_id={option_id}")
+
+    # pick choice
+    r = requests.post(
+        f"{API}/awards/choice", json={"choice": "flowers"}, headers=u["headers"], timeout=15
+    )
+    if r.status_code != 200:
+        log("S2.3 POST /awards/choice flowers", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    log("S2.3 POST /awards/choice flowers", PASS, f"HTTP 200 body={r.json()}")
+
+    # force-bump award_progress via pymongo
+    res = db.award_progress.update_one(
+        {"user_id": u["user_id"]},
+        {"$set": {"points": 100, "status": "ready_to_claim"}},
+    )
+    if res.matched_count != 1:
+        log("S2.4 pymongo force-bump", FAIL, f"matched_count={res.matched_count}")
+        return
+    log("S2.4 pymongo force-bump points=100, status=ready_to_claim", PASS, "matched_count=1")
+
+    # claim
+    r = requests.post(
+        f"{API}/awards/claim",
+        json={
+            "full_name": "Trophy Tester",
+            "address": "1 Oak Lane, Portland, OR 97201",
+            "email": "trophy.tester@example.com",
+            "phone": "+1-555-444-3322",
+            "option_id": option_id,
+        },
+        headers=u["headers"],
+        timeout=15,
+    )
+    if r.status_code != 200:
+        log("S2.5 POST /awards/claim", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    claim_id = r.json().get("claim_id")
+    log("S2.5 POST /awards/claim", PASS, f"HTTP 200 claim_id={claim_id}")
+
+    # GET claims → 1 with option_image_base64 + option_description
+    r = requests.get(f"{API}/awards/claims", headers=u["headers"], timeout=15)
+    if r.status_code != 200:
+        log("S2.6 GET /awards/claims after claim", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    body = r.json()
+    ok = (
+        isinstance(body, list)
+        and len(body) == 1
+        and body[0].get("claim_id") == claim_id
+        and body[0].get("option_image_base64") == TINY_PNG_B64
+        and body[0].get("option_description") == "Twelve fresh red roses"
+    )
+    detail = (
+        f"HTTP 200 count={len(body)} "
+        f"claim_id={body[0].get('claim_id') if body else None} "
+        f"has_image={'option_image_base64' in (body[0] if body else {})} "
+        f"option_description={body[0].get('option_description') if body else None}"
+    )
+    log("S2.6 GET /awards/claims after claim", PASS if ok else FAIL, detail)
+
+    # cleanup: delete the option as admin
+    requests.delete(f"{API}/prizes/options/{option_id}", headers=admin["headers"], timeout=15)
 
 
-def H(tok):
-    return {"Authorization": f"Bearer {tok}"}
+# ---------------- SCENARIO 3: Doctors CRUD ----------------
+def scenario_doctors():
+    print("\n=== Scenario 3: Doctors CRUD + Upsert ===")
+    u = register_fresh("doctorcrud")
+
+    r = requests.get(f"{API}/doctors", headers=u["headers"], timeout=15)
+    if r.status_code != 200:
+        log("S3.1 GET /doctors fresh", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    log("S3.1 GET /doctors fresh user", PASS if r.json() == [] else FAIL, f"HTTP 200 body={r.json()}")
+
+    r = requests.post(
+        f"{API}/doctors",
+        json={"name": "Dr. Smith", "email": "smith@clinic.com"},
+        headers=u["headers"],
+        timeout=15,
+    )
+    if r.status_code != 200:
+        log("S3.2 POST /doctors", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    j = r.json()
+    doctor_id = j.get("doctor_id")
+    ok = j.get("ok") is True and isinstance(doctor_id, str) and doctor_id.startswith("doc_")
+    log("S3.2 POST /doctors Dr. Smith", PASS if ok else FAIL, f"HTTP 200 doctor_id={doctor_id}")
+
+    r = requests.get(f"{API}/doctors", headers=u["headers"], timeout=15)
+    body = r.json() if r.status_code == 200 else []
+    ok = r.status_code == 200 and isinstance(body, list) and len(body) == 1 and body[0].get("name") == "Dr. Smith"
+    log("S3.3 GET /doctors → 1 item", PASS if ok else FAIL, f"HTTP {r.status_code} count={len(body)} body={body}")
+
+    # Upsert: same email, different name
+    r = requests.post(
+        f"{API}/doctors",
+        json={"name": "Dr. John Smith", "email": "smith@clinic.com"},
+        headers=u["headers"],
+        timeout=15,
+    )
+    if r.status_code != 200:
+        log("S3.4 POST /doctors upsert", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    same_id = r.json().get("doctor_id") == doctor_id
+    log("S3.4 POST /doctors upsert (same id)", PASS if same_id else FAIL, f"new_id={r.json().get('doctor_id')} prev={doctor_id}")
+
+    r = requests.get(f"{API}/doctors", headers=u["headers"], timeout=15)
+    body = r.json() if r.status_code == 200 else []
+    ok = r.status_code == 200 and len(body) == 1 and body[0].get("name") == "Dr. John Smith"
+    log("S3.5 GET /doctors after upsert (count=1 name updated)", PASS if ok else FAIL, f"count={len(body)} name={body[0].get('name') if body else None}")
+
+    r = requests.delete(f"{API}/doctors/{doctor_id}", headers=u["headers"], timeout=15)
+    log("S3.6 DELETE /doctors/{doctor_id}", PASS if r.status_code == 200 else FAIL, f"HTTP {r.status_code} body={r.text}")
+
+    r = requests.get(f"{API}/doctors", headers=u["headers"], timeout=15)
+    log("S3.7 GET /doctors after delete", PASS if r.status_code == 200 and r.json() == [] else FAIL, f"HTTP {r.status_code} body={r.json() if r.status_code==200 else r.text}")
 
 
-# Tiny 1x1 PNG
-PNG_BYTES = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?"
-    b"\x00\x05\xfe\x02\xfeA\xc3\x9aR\x00\x00\x00\x00IEND\xaeB`\x82"
-)
-PNG_B64 = base64.b64encode(PNG_BYTES).decode()
+# ---------------- SCENARIO 4: Forgot password ----------------
+def scenario_forgot_password():
+    print("\n=== Scenario 4: Forgot Password ===")
+    # Step A: non-existent email — should still return 200 (no enumeration)
+    r = requests.post(
+        f"{API}/auth/forgot-password",
+        json={"email": "nonexistent@nowhere.com"},
+        timeout=15,
+    )
+    ok = r.status_code == 200 and r.json().get("ok") is True
+    log("S4.1 forgot-password nonexistent email", PASS if ok else FAIL, f"HTTP {r.status_code} body={r.text}")
+
+    # Step B: real user
+    u = register_fresh("forgot")
+    r = requests.post(
+        f"{API}/auth/forgot-password", json={"email": u["email"]}, timeout=15
+    )
+    if r.status_code != 200:
+        log("S4.2 forgot-password real email", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    log("S4.2 forgot-password real email", PASS, f"HTTP 200 body={r.text}")
+
+    # Verify reset_code exists in db.users
+    user_doc = db.users.find_one({"email": u["email"]})
+    reset_code = user_doc.get("reset_code") if user_doc else None
+    log(
+        "S4.3 db.users.reset_code present",
+        PASS if reset_code and len(reset_code) == 6 else FAIL,
+        f"reset_code={reset_code}",
+    )
+    if not reset_code:
+        return
+
+    # Step C: reset password using actual code
+    new_password = "newPass123"
+    r = requests.post(
+        f"{API}/auth/reset-password",
+        json={"token": reset_code, "new_password": new_password},
+        timeout=15,
+    )
+    log("S4.4 reset-password with valid code", PASS if r.status_code == 200 else FAIL, f"HTTP {r.status_code} body={r.text}")
+
+    # Step D: old password → 401
+    r = requests.post(
+        f"{API}/auth/login",
+        json={"identifier": u["email"], "password": u["password"]},
+        timeout=15,
+    )
+    log("S4.5 login with OLD password → 401", PASS if r.status_code == 401 else FAIL, f"HTTP {r.status_code} body={r.text}")
+
+    # Step E: new password → 200
+    r = requests.post(
+        f"{API}/auth/login",
+        json={"identifier": u["email"], "password": new_password},
+        timeout=15,
+    )
+    log("S4.6 login with NEW password → 200", PASS if r.status_code == 200 else FAIL, f"HTTP {r.status_code}")
+
+    # Step F: bad token → 400
+    r = requests.post(
+        f"{API}/auth/reset-password",
+        json={"token": "000000", "new_password": "anotherPass1"},
+        timeout=15,
+    )
+    body_t = r.text
+    ok = r.status_code == 400 and "Invalid or expired reset code" in body_t
+    log("S4.7 reset-password with BAD token → 400", PASS if ok else FAIL, f"HTTP {r.status_code} body={body_t}")
+
+
+# ---------------- SCENARIO 5: Email verification ----------------
+def scenario_email_verification():
+    print("\n=== Scenario 5: Email Verification ===")
+    u = register_fresh("verify")
+
+    r = requests.post(f"{API}/auth/send-verification", headers=u["headers"], timeout=15)
+    if r.status_code != 200:
+        log("S5.1 POST /auth/send-verification", FAIL, f"HTTP {r.status_code}: {r.text}")
+        return
+    j = r.json()
+    ok = j.get("ok") is True and j.get("sent") is True
+    log("S5.1 send-verification → sent:true", PASS if ok else FAIL, f"HTTP 200 body={j}")
+
+    # check verification_code in db
+    doc = db.users.find_one({"user_id": u["user_id"]})
+    code = doc.get("verification_code") if doc else None
+    log(
+        "S5.2 db.users.verification_code present",
+        PASS if code and len(code) == 6 else FAIL,
+        f"verification_code={code}",
+    )
+    if not code:
+        return
+
+    r = requests.post(
+        f"{API}/auth/verify-email", json={"code": code}, headers=u["headers"], timeout=15
+    )
+    ok = r.status_code == 200 and r.json().get("ok") is True
+    log("S5.3 verify-email with valid code", PASS if ok else FAIL, f"HTTP {r.status_code} body={r.text}")
+
+    r = requests.get(f"{API}/auth/me", headers=u["headers"], timeout=15)
+    me = r.json() if r.status_code == 200 else {}
+    log(
+        "S5.4 GET /auth/me email_verified:true",
+        PASS if r.status_code == 200 and me.get("email_verified") is True else FAIL,
+        f"HTTP {r.status_code} email_verified={me.get('email_verified')}",
+    )
+
+    # send-verification again → already_verified
+    r = requests.post(f"{API}/auth/send-verification", headers=u["headers"], timeout=15)
+    j = r.json() if r.status_code == 200 else {}
+    ok = r.status_code == 200 and j.get("already_verified") is True
+    log("S5.5 send-verification when already verified", PASS if ok else FAIL, f"HTTP {r.status_code} body={j}")
 
 
 def main():
-    # --- Login admin + register first regular user
-    print("Setting up actors...")
-    admin_tok, admin_user = admin_login()
-    print(f"  admin role={admin_user.get('role')} uid={admin_user.get('user_id')}")
-    user_tok, user1 = register_user()
-    uid1 = user1["user_id"]
-    print(f"  user1 uid={uid1}")
-
-    # --- Scenario 1: GET options as fresh user, empty list
-    # Clean any pre-existing flowers options to make this assertion meaningful
-    mongo.prize_options.delete_many({"category": "flowers"})
-    r = requests.get(f"{API}/prizes/options?category=flowers", headers=H(user_tok), timeout=10)
-    ok = r.status_code == 200 and r.json() == []
-    record("S1 GET /prizes/options?category=flowers as fresh user → 200 []",
-           ok, f"status={r.status_code} body={r.text[:120]}")
-
-    # --- Scenario 2: POST as regular user → 403 Admin only
-    body = {
-        "category": "flowers",
-        "name": "Pastel mix",
-        "description": "Soft pastel bouquet of roses and tulips",
-        "mime": "image/png",
-        "image_base64": PNG_B64,
-    }
-    r = requests.post(f"{API}/prizes/options", json=body, headers=H(user_tok), timeout=10)
-    ok = r.status_code == 403 and "Admin only" in r.text
-    record("S2 POST /prizes/options as regular user → 403 Admin only",
-           ok, f"status={r.status_code} body={r.text[:120]}")
-
-    # --- Scenario 3: POST as admin → 200 ok
-    r = requests.post(f"{API}/prizes/options", json=body, headers=H(admin_tok), timeout=10)
-    ok = r.status_code == 200 and r.json().get("ok") is True and (r.json().get("option_id") or "").startswith("po_")
-    option_id = r.json().get("option_id") if r.status_code == 200 else None
-    record("S3 POST /prizes/options as admin → 200 {ok:true, option_id:po_...}",
-           ok, f"status={r.status_code} option_id={option_id}")
-
-    # --- Scenario 4: GET as user → 200 with 1 item, fields present
-    r = requests.get(f"{API}/prizes/options?category=flowers", headers=H(user_tok), timeout=10)
-    body4 = r.json() if r.status_code == 200 else []
-    item_ok = False
-    if r.status_code == 200 and isinstance(body4, list) and len(body4) == 1:
-        it = body4[0]
-        item_ok = (
-            it.get("option_id") == option_id
-            and it.get("category") == "flowers"
-            and "description" in it
-            and it.get("description") == "Soft pastel bouquet of roses and tulips"
-        )
-    record("S4 GET /prizes/options?category=flowers → 200 with 1 item (option_id/category/description)",
-           item_ok, f"status={r.status_code} count={len(body4) if isinstance(body4, list) else '?'} sample_keys={list(body4[0].keys()) if isinstance(body4, list) and body4 else []}")
-
-    # --- Scenario 5: GET ?category=invalid → 400
-    r = requests.get(f"{API}/prizes/options?category=invalid", headers=H(user_tok), timeout=10)
-    ok = r.status_code == 400
-    record("S5 GET /prizes/options?category=invalid → 400",
-           ok, f"status={r.status_code} body={r.text[:120]}")
-
-    # --- Scenario 6: New user picks flowers, force-bump, claim with option_id
-    user2_tok, user2 = register_user()
-    uid2 = user2["user_id"]
-    r = requests.post(f"{API}/awards/choice", json={"choice": "flowers"}, headers=H(user2_tok), timeout=10)
-    assert r.status_code == 200, f"choice failed {r.status_code} {r.text}"
-    mongo.award_progress.update_one(
-        {"user_id": uid2},
-        {"$set": {"points": 100, "status": "ready_to_claim"}},
-    )
-    claim_body = {
-        "full_name": "Test User",
-        "address": "123 Main St",
-        "email": "test@example.com",
-        "phone": "5551234",
-        "option_id": option_id,
-    }
-    r = requests.post(f"{API}/awards/claim", json=claim_body, headers=H(user2_tok), timeout=10)
-    claim_id = None
-    if r.status_code == 200:
-        j = r.json()
-        claim_id = j.get("claim_id")
-        ok6a = j.get("ok") is True and (claim_id or "").startswith("claim_")
-    else:
-        ok6a = False
-    record("S6a POST /awards/claim (valid option) → 200 {ok:true, claim_id:claim_...}",
-           ok6a, f"status={r.status_code} claim_id={claim_id} body={r.text[:160]}")
-
-    # After claim, progress should reset
-    r = requests.get(f"{API}/awards/progress", headers=H(user2_tok), timeout=10)
-    pj = r.json() if r.status_code == 200 else {}
-    ok6b = (
-        r.status_code == 200
-        and pj.get("status") == "picking"
-        and pj.get("choice") in (None,)
-        and pj.get("points") == 0
-    )
-    record("S6b After claim, GET /awards/progress → status:picking, choice:null, points:0",
-           ok6b, f"status={r.status_code} body={pj}")
-
-    # --- Scenario 7: Same user picks candy, force-bump, try claim with flowers option → 400
-    r = requests.post(f"{API}/awards/choice", json={"choice": "candy"}, headers=H(user2_tok), timeout=10)
-    assert r.status_code == 200, f"second choice failed {r.status_code} {r.text}"
-    mongo.award_progress.update_one(
-        {"user_id": uid2},
-        {"$set": {"points": 100, "status": "ready_to_claim"}},
-    )
-    r = requests.post(f"{API}/awards/claim", json=claim_body, headers=H(user2_tok), timeout=10)
-    ok7 = (
-        r.status_code == 400
-        and "does not belong" in r.text.lower() or "category" in r.text.lower()
-    )
-    # tighter check
-    detail_text = ""
+    print(f"API: {API}")
+    print(f"Admin: {ADMIN_EMAIL}")
     try:
-        detail_text = r.json().get("detail", "")
-    except Exception:
-        detail_text = r.text
-    ok7 = r.status_code == 400 and "Selected option does not belong to your earned prize category" in detail_text
-    record("S7 Claim flowers option_id while choice=candy → 400 'does not belong to earned prize category'",
-           ok7, f"status={r.status_code} detail={detail_text}")
+        scenario_streak()
+        scenario_trophy_room()
+        scenario_doctors()
+        scenario_forgot_password()
+        scenario_email_verification()
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        log("UNCAUGHT EXCEPTION", FAIL, str(exc))
 
-    # --- Scenario 8: same user (still ready_to_claim for candy), claim with nonexistent option
-    # progress was NOT reset by S7 failure, so should still be ready_to_claim
-    bad_body = dict(claim_body)
-    bad_body["option_id"] = "po_nonexistent"
-    r = requests.post(f"{API}/awards/claim", json=bad_body, headers=H(user2_tok), timeout=10)
-    try:
-        detail_text = r.json().get("detail", "")
-    except Exception:
-        detail_text = r.text
-    ok8 = r.status_code == 400 and "Selected prize option not found" in detail_text
-    record("S8 Claim with option_id=po_nonexistent → 400 'Selected prize option not found'",
-           ok8, f"status={r.status_code} detail={detail_text}")
-
-    # --- Scenario 9: DELETE option as regular user → 403; as admin → 200
-    r = requests.delete(f"{API}/prizes/options/{option_id}", headers=H(user_tok), timeout=10)
-    ok9a = r.status_code == 403
-    record("S9a DELETE /prizes/options/{option_id} as regular user → 403",
-           ok9a, f"status={r.status_code} body={r.text[:120]}")
-
-    r = requests.delete(f"{API}/prizes/options/{option_id}", headers=H(admin_tok), timeout=10)
-    ok9b = r.status_code == 200 and r.json().get("ok") is True
-    record("S9b DELETE /prizes/options/{option_id} as admin → 200 ok",
-           ok9b, f"status={r.status_code} body={r.text[:120]}")
-
-    # --- Scenario 10: Mongo verification — award_claims has option_id + option_name; admin_notices has 'Pastel mix'
-    claim_doc = mongo.award_claims.find_one({"claim_id": claim_id}) if claim_id else None
-    ok10a = bool(
-        claim_doc
-        and claim_doc.get("option_id") == option_id
-        and claim_doc.get("option_name") == "Pastel mix"
-    )
-    record("S10a db.award_claims has claim doc with option_id & option_name='Pastel mix'",
-           ok10a,
-           f"option_id_in_doc={claim_doc.get('option_id') if claim_doc else None} option_name={claim_doc.get('option_name') if claim_doc else None}")
-
-    notice = mongo.admin_notices.find_one({"claim_id": claim_id}) if claim_id else None
-    ok10b = bool(notice and "Pastel mix" in (notice.get("message") or ""))
-    record("S10b db.admin_notices has doc whose message includes 'Pastel mix'",
-           ok10b,
-           f"message={(notice.get('message') if notice else None)}")
-
-    # Summary
-    print("\n=== SUMMARY ===")
-    n_pass = sum(1 for _, ok, _ in results if ok)
-    n_total = len(results)
-    for label, ok, detail in results:
-        print(f"  [{'PASS' if ok else 'FAIL'}] {label}")
-    print(f"\nTotal: {n_pass}/{n_total} passed")
-    sys.exit(0 if n_pass == n_total else 1)
+    print("\n========= SUMMARY =========")
+    passed = sum(1 for _, s, _ in results if s == PASS)
+    failed = sum(1 for _, s, _ in results if s == FAIL)
+    for name, status, detail in results:
+        icon = "✅" if status == PASS else "❌"
+        print(f"{icon} {name}")
+    print(f"\nTotal: {passed} passed, {failed} failed (of {len(results)})")
+    sys.exit(0 if failed == 0 else 1)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,17 @@ type Progress = {
   status: Status;
 };
 
+type Claim = {
+  claim_id: string;
+  choice: string;
+  option_name?: string;
+  full_name?: string;
+  created_at?: string;
+  option_image_base64?: string;
+  option_mime?: string;
+  option_description?: string;
+};
+
 type PrizeKey = "flowers" | "candy" | "giftcard" | "treasure_chest";
 
 // Flower image set — one per 25-point tier
@@ -98,14 +109,19 @@ const PRIZES_ORDER: PrizeKey[] = ["flowers", "candy", "giftcard", "treasure_ches
 
 export default function Rewards() {
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
   const router = useRouter();
 
   const load = useCallback(async () => {
     try {
-      const { data } = await api.get<Progress>("/awards/progress");
-      setProgress(data);
+      const [pRes, cRes] = await Promise.all([
+        api.get<Progress>("/awards/progress"),
+        api.get<Claim[]>("/awards/claims"),
+      ]);
+      setProgress(pRes.data);
+      setClaims(cRes.data);
     } catch {}
     setLoading(false);
   }, []);
@@ -167,8 +183,52 @@ export default function Rewards() {
             }
           />
         )}
+
+        {claims.length > 0 && <TrophyRoom claims={claims} />}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function TrophyRoom({ claims }: { claims: Claim[] }) {
+  return (
+    <View style={styles.trophyWrap}>
+      <View style={styles.trophyHeader}>
+        <Ionicons name="trophy" size={20} color={COLORS.brand} />
+        <Text style={styles.trophyTitle}>Trophy room</Text>
+        <Text style={styles.trophyCount}>{claims.length}</Text>
+      </View>
+      {claims.map((c) => (
+        <View key={c.claim_id} style={styles.trophyCard}>
+          {c.option_image_base64 ? (
+            <Image
+              source={{
+                uri: `data:${c.option_mime || "image/png"};base64,${c.option_image_base64}`,
+              }}
+              style={styles.trophyImg}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.trophyImg, { alignItems: "center", justifyContent: "center" }]}>
+              <Ionicons name="gift" size={28} color={COLORS.text3} />
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.trophyName}>
+              {c.option_name || PRIZE_META[(c.choice as PrizeKey)]?.label || "Prize"}
+            </Text>
+            <Text style={styles.trophyCategory}>
+              {PRIZE_META[(c.choice as PrizeKey)]?.label || c.choice}
+            </Text>
+            {c.created_at && (
+              <Text style={styles.trophyDate}>
+                Claimed {new Date(c.created_at).toLocaleDateString()}
+              </Text>
+            )}
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -582,4 +642,38 @@ const styles = StyleSheet.create({
   },
   claimBtnText: { color: "#FFFFFF", fontWeight: "800", fontSize: 16 },
   claimNote: { color: COLORS.text3, fontSize: 12, marginTop: 12, textAlign: "center" },
+
+  trophyWrap: { marginTop: 22 },
+  trophyHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  trophyTitle: { color: COLORS.text, fontSize: 18, fontWeight: "800" },
+  trophyCount: {
+    color: "#0B0B0B",
+    backgroundColor: COLORS.brand,
+    fontWeight: "800",
+    fontSize: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 99,
+    overflow: "hidden",
+  },
+  trophyCard: {
+    flexDirection: "row",
+    gap: 12,
+    backgroundColor: COLORS.bg2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 10,
+    alignItems: "center",
+  },
+  trophyImg: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    backgroundColor: COLORS.bg,
+  },
+  trophyName: { color: COLORS.text, fontWeight: "800", fontSize: 15 },
+  trophyCategory: { color: COLORS.text2, fontSize: 13, marginTop: 2 },
+  trophyDate: { color: COLORS.text3, fontSize: 12, marginTop: 4 },
 });

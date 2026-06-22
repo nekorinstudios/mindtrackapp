@@ -108,6 +108,16 @@ export default function Login() {
             )}
           </TouchableOpacity>
 
+          <TouchableOpacity
+            testID="login-forgot-btn"
+            onPress={() => router.push("/forgot-password")}
+            style={{ alignItems: "center", marginTop: 14 }}
+          >
+            <Text style={{ color: COLORS.brand, fontWeight: "700", fontSize: 14 }}>
+              Forgot password?
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity onPress={() => router.replace("/signup")} style={styles.swap}>
             <Text style={styles.swapText}>
               No account yet? <Text style={{ color: COLORS.brand, fontWeight: "700" }}>Sign up</Text>

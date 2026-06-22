@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -17,11 +17,39 @@ import { api, COLORS, formatApiError } from "../../src/api";
 
 const DAYS = [7, 14, 30, 60];
 
+type Doctor = { doctor_id: string; name: string; email: string };
+
 export default function Send() {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [days, setDays] = useState(30);
   const [sending, setSending] = useState(false);
   const [lastResult, setLastResult] = useState<any>(null);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [saveDoctor, setSaveDoctor] = useState(true);
+
+  const loadDoctors = useCallback(async () => {
+    try {
+      const { data } = await api.get<Doctor[]>("/doctors");
+      setDoctors(data);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadDoctors();
+  }, [loadDoctors]);
+
+  const pickSaved = (d: Doctor) => {
+    setName(d.name);
+    setEmail(d.email);
+  };
+
+  const removeDoctor = async (doctor_id: string) => {
+    try {
+      await api.delete(`/doctors/${doctor_id}`);
+      await loadDoctors();
+    } catch {}
+  };
 
   const send = async () => {
     if (!email.includes("@")) {
@@ -30,8 +58,17 @@ export default function Send() {
     }
     setSending(true);
     try {
-      const { data } = await api.post("/reports/send", { doctor_email: email.trim(), days });
+      const { data } = await api.post("/reports/send", {
+        doctor_email: email.trim(),
+        days,
+      });
       setLastResult(data);
+      if (saveDoctor && name.trim()) {
+        try {
+          await api.post("/doctors", { name: name.trim(), email: email.trim() });
+          await loadDoctors();
+        } catch {}
+      }
     } catch (e: any) {
       Alert.alert("Send failed", formatApiError(e));
     } finally {
@@ -51,8 +88,47 @@ export default function Send() {
             Share your symptom & energy report for professional review.
           </Text>
 
+          {doctors.length > 0 && (
+            <View style={styles.savedWrap}>
+              <Text style={styles.savedLabel}>Saved doctors</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
+                  {doctors.map((d) => (
+                    <View key={d.doctor_id} style={styles.savedChip}>
+                      <TouchableOpacity
+                        onPress={() => pickSaved(d)}
+                        testID={`saved-doctor-${d.doctor_id}`}
+                      >
+                        <Text style={styles.savedChipName}>{d.name}</Text>
+                        <Text style={styles.savedChipEmail}>{d.email}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => removeDoctor(d.doctor_id)}
+                        style={styles.savedChipDelete}
+                        testID={`delete-doctor-${d.doctor_id}`}
+                      >
+                        <Ionicons name="close" size={14} color={COLORS.text3} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          )}
+
           <View style={styles.card}>
-            <Text style={styles.label}>Doctor's email</Text>
+            <Text style={styles.label}>Doctor's name</Text>
+            <TextInput
+              testID="send-name-input"
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder="Dr. Smith"
+              placeholderTextColor={COLORS.text3}
+              autoCapitalize="words"
+            />
+
+            <Text style={[styles.label, { marginTop: 14 }]}>Doctor's email</Text>
             <TextInput
               testID="send-email-input"
               style={styles.input}
@@ -63,6 +139,21 @@ export default function Send() {
               autoCapitalize="none"
               keyboardType="email-address"
             />
+
+            <TouchableOpacity
+              testID="save-doctor-toggle"
+              onPress={() => setSaveDoctor((v) => !v)}
+              style={styles.saveToggle}
+            >
+              <Ionicons
+                name={saveDoctor ? "checkbox" : "square-outline"}
+                size={20}
+                color={saveDoctor ? COLORS.brand : COLORS.text3}
+              />
+              <Text style={styles.saveToggleText}>
+                Save this doctor for future reports
+              </Text>
+            </TouchableOpacity>
 
             <Text style={[styles.label, { marginTop: 14 }]}>Date range</Text>
             <View style={styles.pillRow}>
@@ -192,4 +283,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   infoText: { flex: 1, color: COLORS.text2, fontSize: 13, lineHeight: 18 },
+  savedWrap: { marginBottom: 12 },
+  savedLabel: { color: COLORS.text2, fontSize: 12, fontWeight: "700", marginBottom: 6 },
+  savedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.bg2,
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  savedChipName: { color: COLORS.text, fontWeight: "700", fontSize: 13 },
+  savedChipEmail: { color: COLORS.text3, fontSize: 11, marginTop: 2 },
+  savedChipDelete: { padding: 4 },
+  saveToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+  saveToggleText: { color: COLORS.text2, fontSize: 13 },
 });

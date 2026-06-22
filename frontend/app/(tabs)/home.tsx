@@ -132,12 +132,18 @@ export default function Home() {
   const [lastEnergy, setLastEnergy] = useState<{ percent: number; at: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [streak, setStreak] = useState<{
+    current_streak: number;
+    longest_streak: number;
+    active_today: boolean;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [catRes, eRes] = await Promise.all([
+      const [catRes, eRes, sRes] = await Promise.all([
         api.get<SymCatalog>("/catalog/symptoms"),
         api.get("/energy/logs?days=1"),
+        api.get("/streak"),
       ]);
       setCatalog(catRes.data);
       const firstKey = Object.keys(catRes.data)[0];
@@ -146,6 +152,7 @@ export default function Home() {
         setEnergy(eRes.data[0].percent);
         setLastEnergy({ percent: eRes.data[0].percent, at: eRes.data[0].created_at });
       }
+      setStreak(sRes.data);
     } catch (e: any) {
       if (e?.response?.status === 401) logout();
     } finally {
@@ -190,6 +197,28 @@ export default function Home() {
     );
   }
 
+  const handleVerifyEmail = async () => {
+    try {
+      await api.post("/auth/send-verification");
+      Alert.prompt(
+        "Check your email",
+        "We sent a 6-digit code to your email. Enter it below to verify.",
+        async (code) => {
+          if (!code) return;
+          try {
+            await api.post("/auth/verify-email", { code: code.trim() });
+            Alert.alert("Verified!", "Your email is now verified.");
+          } catch (e: any) {
+            Alert.alert("Could not verify", formatApiError(e));
+          }
+        },
+        "plain-text"
+      );
+    } catch (e: any) {
+      Alert.alert("Could not send code", formatApiError(e));
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView
@@ -200,6 +229,30 @@ export default function Home() {
           <View>
             <Text style={styles.hi}>Hi, {user?.name || user?.username}</Text>
             <Text style={styles.today}>{new Date().toDateString()}</Text>
+            {streak && streak.current_streak > 0 && (
+              <View style={styles.streakBadge}>
+                <Text style={styles.streakEmoji}>🔥</Text>
+                <Text style={styles.streakText}>
+                  {streak.current_streak}-day streak
+                </Text>
+                {streak.longest_streak > streak.current_streak && (
+                  <Text style={styles.streakBest}>
+                    · best {streak.longest_streak}
+                  </Text>
+                )}
+              </View>
+            )}
+            {user && user.email_verified === false && user.role !== "admin" && (
+              <TouchableOpacity
+                testID="verify-email-banner"
+                onPress={handleVerifyEmail}
+                style={styles.verifyBanner}
+              >
+                <Ionicons name="mail-unread-outline" size={14} color="#0B0B0B" />
+                <Text style={styles.verifyBannerText}>Verify your email</Text>
+                <Ionicons name="chevron-forward" size={14} color="#0B0B0B" />
+              </TouchableOpacity>
+            )}
           </View>
           <View style={{ flexDirection: "row", gap: 8 }}>
             <TouchableOpacity
@@ -419,6 +472,34 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   hi: { fontSize: 24, fontWeight: "800", color: COLORS.text },
   today: { color: COLORS.text3, marginTop: 2 },
+  streakBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(250, 204, 21, 0.18)",
+    borderColor: "rgba(250, 204, 21, 0.55)",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 99,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  streakEmoji: { fontSize: 14 },
+  streakText: { color: COLORS.text, fontWeight: "800", fontSize: 13 },
+  streakBest: { color: COLORS.text2, fontSize: 12, marginLeft: 2 },
+  verifyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.brand,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 99,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  verifyBannerText: { color: "#0B0B0B", fontWeight: "800", fontSize: 13 },
   iconBtn: {
     width: 42,
     height: 42,
