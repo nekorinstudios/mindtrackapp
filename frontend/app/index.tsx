@@ -46,7 +46,6 @@ export default function Landing() {
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text style={styles.brand}>MindTrack</Text>
             <Text style={styles.tagline}>
               Daily wellness tracking for ADHD, Bipolar & Autism.
             </Text>
