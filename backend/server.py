@@ -1525,14 +1525,21 @@ async def billing_webhook(request: Request):
 
 
 
-# --- Music (admin-uploaded) ---
+# --- Music (admin-uploaded + user-uploaded personal tracks) ---
+
+MAX_USER_MUSIC_BYTES = 5 * 1024 * 1024  # 5 MB per user upload
+
+
 @api.get("/music")
 async def list_music(user: dict = Depends(get_current_user)):
-    cursor = db.music.find({}, {"_id": 0, "data_base64": 0}).sort("created_at", -1)
+    """Returns admin-uploaded tracks (no owner) plus the current user's own tracks."""
+    query = {"$or": [{"owner_user_id": {"$in": [None, ""]}}, {"owner_user_id": user["user_id"]}]}
+    cursor = db.music.find(query, {"_id": 0, "data_base64": 0}).sort("created_at", -1)
     items = []
     async for d in cursor:
         if isinstance(d.get("created_at"), datetime):
             d["created_at"] = d["created_at"].isoformat()
+        d["is_mine"] = d.get("owner_user_id") == user["user_id"]
         items.append(d)
     return items
 
@@ -1542,6 +1549,10 @@ async def get_music_data(track_id: str, user: dict = Depends(get_current_user)):
     doc = await db.music.find_one({"track_id": track_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
+    owner = doc.get("owner_user_id")
+    # Only allow if it's admin/global (no owner) or the owner is the current user
+    if owner and owner != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not allowed")
     return {
         "track_id": doc["track_id"],
         "title": doc["title"],
@@ -1561,6 +1572,7 @@ async def upload_music(
     body: MusicUploadIn,
     user: dict = Depends(get_current_user),
 ):
+    """Admin-only: uploads a track visible to all users (owner_user_id = None)."""
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     if not body.title or not body.title.strip():
@@ -1574,6 +1586,45 @@ async def upload_music(
             "title": body.title.strip(),
             "mime": body.mime or "audio/mpeg",
             "data_base64": body.data_base64,
+            "owner_user_id": None,
+            "uploaded_by": user["user_id"],
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    return {"ok": True, "track_id": track_id}
+
+
+@api.post("/music/upload/user")
+async def upload_user_music(
+    body: MusicUploadIn,
+    user: dict = Depends(get_current_user),
+):
+    """Any authenticated user can upload a private personal track (max 5 MB)."""
+    if not body.title or not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not body.data_base64:
+        raise HTTPException(status_code=400, detail="No audio data provided")
+    approx_bytes = (len(body.data_base64) * 3) // 4
+    if approx_bytes > MAX_USER_MUSIC_BYTES:
+        mb = approx_bytes / (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({mb:.1f} MB). Maximum is 5 MB per track.",
+        )
+    # Optional MIME allow-list
+    allowed_mimes = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave", "audio/mp4", "audio/x-m4a", "audio/m4a", "audio/aac"}
+    mime = (body.mime or "audio/mpeg").lower()
+    if mime not in allowed_mimes:
+        # Be lenient — accept but normalize
+        mime = "audio/mpeg"
+    track_id = f"trk_{uuid.uuid4().hex[:12]}"
+    await db.music.insert_one(
+        {
+            "track_id": track_id,
+            "title": body.title.strip()[:120],
+            "mime": mime,
+            "data_base64": body.data_base64,
+            "owner_user_id": user["user_id"],
             "uploaded_by": user["user_id"],
             "created_at": datetime.now(timezone.utc),
         }
@@ -1583,11 +1634,120 @@ async def upload_music(
 
 @api.delete("/music/{track_id}")
 async def delete_music(track_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.music.find_one({"track_id": track_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+    owner = doc.get("owner_user_id")
+    is_admin = user.get("role") == "admin"
+    is_owner = owner == user["user_id"]
+    # Admin can delete anything. Regular users can only delete their own uploads.
+    if not is_admin and not (owner and is_owner):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    await db.music.delete_one({"track_id": track_id})
+    return {"ok": True}
+
+
+# --- Music requests (users ask admin to add music) ---
+
+class MusicRequestIn(BaseModel):
+    message: str
+
+
+class MusicRequestStatusIn(BaseModel):
+    status: Literal["pending", "fulfilled", "declined"]
+    admin_note: Optional[str] = None
+
+
+@api.post("/music/requests")
+async def create_music_request(
+    body: MusicRequestIn, user: dict = Depends(get_current_user)
+):
+    msg = (body.message or "").strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Message is required")
+    if len(msg) > 1000:
+        raise HTTPException(status_code=400, detail="Message too long (max 1000 chars)")
+    request_id = f"mrq_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    await db.music_requests.insert_one(
+        {
+            "request_id": request_id,
+            "user_id": user["user_id"],
+            "user_email": user.get("email"),
+            "user_name": (
+                (user.get("first_name") or "") + " " + (user.get("last_name") or "")
+            ).strip() or user.get("username") or user.get("email"),
+            "message": msg,
+            "status": "pending",
+            "admin_note": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    return {"ok": True, "request_id": request_id}
+
+
+def _serialize_music_request(d: dict) -> dict:
+    out = {k: v for k, v in d.items() if k != "_id"}
+    for k in ("created_at", "updated_at"):
+        if isinstance(out.get(k), datetime):
+            out[k] = out[k].isoformat()
+    return out
+
+
+@api.get("/music/requests/mine")
+async def list_my_music_requests(user: dict = Depends(get_current_user)):
+    cursor = db.music_requests.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1)
+    items = []
+    async for d in cursor:
+        items.append(_serialize_music_request(d))
+    return items
+
+
+@api.get("/music/requests")
+async def list_all_music_requests(user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    r = await db.music.delete_one({"track_id": track_id})
-    if r.deleted_count == 0:
+    cursor = db.music_requests.find({}, {"_id": 0}).sort("created_at", -1)
+    items = []
+    async for d in cursor:
+        items.append(_serialize_music_request(d))
+    return items
+
+
+@api.patch("/music/requests/{request_id}")
+async def update_music_request(
+    request_id: str,
+    body: MusicRequestStatusIn,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    update = {
+        "status": body.status,
+        "admin_note": (body.admin_note or None),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    r = await db.music_requests.update_one(
+        {"request_id": request_id}, {"$set": update}
+    )
+    if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+
+@api.delete("/music/requests/{request_id}")
+async def delete_music_request(
+    request_id: str, user: dict = Depends(get_current_user)
+):
+    doc = await db.music_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if doc.get("user_id") != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not allowed")
+    await db.music_requests.delete_one({"request_id": request_id})
     return {"ok": True}
 
 

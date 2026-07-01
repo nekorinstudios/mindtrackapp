@@ -18,7 +18,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { api, COLORS, formatApiError } from "../src/api";
 import { useAuth } from "../src/auth";
 
-type Track = { track_id: string; title: string; mime: string };
+type Track = { track_id: string; title: string; mime: string; owner_user_id?: string | null; is_mine?: boolean };
 type Notice = {
   notice_id: string;
   email: string;
@@ -26,23 +26,37 @@ type Notice = {
   message: string;
   created_at: string;
 };
+type MusicRequest = {
+  request_id: string;
+  user_id?: string;
+  user_email?: string;
+  user_name?: string;
+  message: string;
+  status: "pending" | "fulfilled" | "declined";
+  admin_note?: string | null;
+  created_at: string;
+  updated_at?: string;
+};
 
 export default function Admin() {
   const { user } = useAuth();
   const router = useRouter();
   const [tracks, setTracks] = useState<Track[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [requests, setRequests] = useState<MusicRequest[]>([]);
   const [title, setTitle] = useState("");
   const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [m, n] = await Promise.all([
+      const [m, n, r] = await Promise.all([
         api.get<Track[]>("/music"),
         api.get<Notice[]>("/admin/notices").catch(() => ({ data: [] as Notice[] })),
+        api.get<MusicRequest[]>("/music/requests").catch(() => ({ data: [] as MusicRequest[] })),
       ]);
       setTracks(m.data);
       setNotices((n as any).data || []);
+      setRequests((r as any).data || []);
     } catch {}
   }, []);
 
@@ -122,6 +136,15 @@ export default function Admin() {
       await api.delete(`/music/${t.track_id}`);
       await load();
     } catch {}
+  };
+
+  const setReqStatus = async (r: MusicRequest, status: MusicRequest["status"]) => {
+    try {
+      await api.patch(`/music/requests/${r.request_id}`, { status });
+      await load();
+    } catch (e: any) {
+      Alert.alert("Update failed", formatApiError(e));
+    }
   };
 
   if (!user || user.role !== "admin") {
@@ -212,6 +235,54 @@ export default function Admin() {
           ))
         )}
 
+        <Text style={[styles.h2, { marginTop: 18 }]}>Music requests</Text>
+        {requests.length === 0 ? (
+          <Text style={styles.sub}>No user requests yet.</Text>
+        ) : (
+          requests.map((r) => (
+            <View key={r.request_id} style={[styles.row, { flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
+              <View>
+                <Text style={styles.rowText}>{r.message}</Text>
+                <Text style={styles.sub}>
+                  From {r.user_name || r.user_email} · {new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                </Text>
+                <Text style={[styles.sub, { fontWeight: "700", marginTop: 4 }]}>
+                  Status: {r.status}
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {r.status !== "fulfilled" && (
+                  <TouchableOpacity
+                    onPress={() => setReqStatus(r, "fulfilled")}
+                    style={[styles.smallBtn, { backgroundColor: COLORS.brand, borderColor: COLORS.brand }]}
+                  >
+                    <Ionicons name="checkmark" size={13} color="#0B0B0B" />
+                    <Text style={[styles.smallBtnText, { color: "#0B0B0B" }]}>Mark fulfilled</Text>
+                  </TouchableOpacity>
+                )}
+                {r.status !== "declined" && (
+                  <TouchableOpacity
+                    onPress={() => setReqStatus(r, "declined")}
+                    style={styles.smallBtn}
+                  >
+                    <Ionicons name="close" size={13} color={COLORS.text} />
+                    <Text style={styles.smallBtnText}>Decline</Text>
+                  </TouchableOpacity>
+                )}
+                {r.status !== "pending" && (
+                  <TouchableOpacity
+                    onPress={() => setReqStatus(r, "pending")}
+                    style={styles.smallBtn}
+                  >
+                    <Ionicons name="refresh" size={13} color={COLORS.text} />
+                    <Text style={styles.smallBtnText}>Reset</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          ))
+        )}
+
         <Text style={[styles.h2, { marginTop: 18 }]}>Reward notices</Text>
         {notices.length === 0 ? (
           <Text style={styles.sub}>No pending reward deliveries.</Text>
@@ -292,4 +363,16 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   rowText: { color: COLORS.text, fontWeight: "700", flex: 1 },
+  smallBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+  },
+  smallBtnText: { color: COLORS.text, fontWeight: "700", fontSize: 12 },
 });
