@@ -19,12 +19,12 @@ import * as FileSystem from "expo-file-system/legacy";
 import { api, COLORS, formatApiError } from "../src/api";
 import { useAuth } from "../src/auth";
 
-type Category = "flowers" | "candy" | "giftcard" | "treasure_chest";
+type Category = "flowers" | "candy" | "toy_surprise" | "treasure_chest";
 
 const CATEGORY_LABELS: Record<Category, string> = {
   flowers: "Flower Bouquet",
   candy: "Jar of Candy",
-  giftcard: "Envelope Surprise",
+  toy_surprise: "Toy Surprise",
   treasure_chest: "Treasure Chest",
 };
 

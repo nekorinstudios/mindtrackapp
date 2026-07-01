@@ -184,7 +184,7 @@ class JournalUpdateIn(BaseModel):
     timestamp: Optional[datetime] = None
 
 class AwardChoiceIn(BaseModel):
-    choice: Literal["flowers", "candy", "giftcard", "treasure_chest"]
+    choice: Literal["flowers", "candy", "toy_surprise", "treasure_chest"]
 
 
 class AwardClaimIn(BaseModel):
@@ -196,7 +196,7 @@ class AwardClaimIn(BaseModel):
 
 
 class PrizeOptionIn(BaseModel):
-    category: Literal["flowers", "candy", "giftcard", "treasure_chest"]
+    category: Literal["flowers", "candy", "toy_surprise", "treasure_chest"]
     name: Optional[str] = None
     description: str
     mime: str = "image/png"
@@ -1050,7 +1050,7 @@ async def list_prize_options(
     category: str,
     user: dict = Depends(get_current_user),
 ):
-    if category not in {"flowers", "candy", "giftcard", "treasure_chest"}:
+    if category not in {"flowers", "candy", "toy_surprise", "treasure_chest"}:
         raise HTTPException(status_code=400, detail="Invalid category")
     cursor = db.prize_options.find(
         {"category": category, "active": {"$ne": False}}, {"_id": 0}
@@ -2214,6 +2214,20 @@ async def startup():
         if not verify_password(admin_password, existing.get("password_hash") or ""):
             updates["password_hash"] = hash_password(admin_password)
         await db.users.update_one({"email": admin_email}, {"$set": updates})
+
+    # Migrate legacy 'giftcard' prize category to 'toy_surprise'
+    try:
+        await db.award_progress.update_many(
+            {"choice": "giftcard"}, {"$set": {"choice": "toy_surprise"}}
+        )
+        await db.award_claims.update_many(
+            {"choice": "giftcard"}, {"$set": {"choice": "toy_surprise"}}
+        )
+        await db.prize_options.update_many(
+            {"category": "giftcard"}, {"$set": {"category": "toy_surprise"}}
+        )
+    except Exception as e:
+        print(f"[migration] giftcard->toy_surprise failed: {e}")
 
 
 @app.on_event("shutdown")

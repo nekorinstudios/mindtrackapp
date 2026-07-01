@@ -180,7 +180,7 @@ export default function Admin() {
             {([
               { key: "flowers", label: "Flower Bouquet", icon: "flower-outline" as const },
               { key: "candy", label: "Jar of Candy", icon: "ice-cream-outline" as const },
-              { key: "giftcard", label: "Envelope Surprise", icon: "mail-outline" as const },
+              { key: "toy_surprise", label: "Toy Surprise", icon: "color-palette-outline" as const },
               { key: "treasure_chest", label: "Treasure Chest", icon: "cube-outline" as const },
             ]).map((c) => (
               <TouchableOpacity

@@ -16,7 +16,7 @@ import { api, COLORS, formatApiError } from "../src/api";
 const CATEGORY_LABELS: Record<string, string> = {
   flowers: "Flower Bouquet",
   candy: "Jar of Candy",
-  giftcard: "Envelope Surprise",
+  toy_surprise: "Toy Surprise",
   treasure_chest: "Treasure Chest",
 };
 

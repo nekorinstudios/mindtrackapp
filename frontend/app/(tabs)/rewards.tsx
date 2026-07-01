@@ -45,7 +45,7 @@ type Claim = {
   option_description?: string;
 };
 
-type PrizeKey = "flowers" | "candy" | "giftcard" | "treasure_chest";
+type PrizeKey = "flowers" | "candy" | "toy_surprise" | "treasure_chest";
 
 // Flower image set — one per 25-point tier
 const FLOWER_IMAGES: Record<number, ImageSourcePropType> = {
@@ -72,6 +72,14 @@ const CANDY_IMAGES: Record<number, ImageSourcePropType> = {
   100: require("../../assets/prizes/candy/100.png"),
 };
 
+const TOY_IMAGES: Record<number, ImageSourcePropType> = {
+  0: require("../../assets/prizes/toy_surprise/0.png"),
+  25: require("../../assets/prizes/toy_surprise/25.png"),
+  50: require("../../assets/prizes/toy_surprise/50.png"),
+  75: require("../../assets/prizes/toy_surprise/75.png"),
+  100: require("../../assets/prizes/toy_surprise/100.png"),
+};
+
 function tierImage(set: Record<number, ImageSourcePropType>, points: number): ImageSourcePropType {
   if (points >= 100) return set[100];
   if (points >= 75) return set[75];
@@ -94,10 +102,10 @@ const PRIZE_META: Record<
     subtitle: "A sweet jar full of candy",
     deliveryHint: "Shipped right to your door",
   },
-  giftcard: {
-    label: "Envelope Surprise",
-    subtitle: "A surprise envelope with goodies",
-    deliveryHint: "Sent by post — let it be a surprise",
+  toy_surprise: {
+    label: "Toy Surprise",
+    subtitle: "A box bursting with playful toys",
+    deliveryHint: "Mailed directly to you — let it be a surprise",
   },
   treasure_chest: {
     label: "Treasure Chest",
@@ -106,7 +114,7 @@ const PRIZE_META: Record<
   },
 };
 
-const PRIZES_ORDER: PrizeKey[] = ["flowers", "candy", "giftcard", "treasure_chest"];
+const PRIZES_ORDER: PrizeKey[] = ["flowers", "candy", "toy_surprise", "treasure_chest"];
 
 export default function Rewards() {
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -443,7 +451,16 @@ function PrizeImage({
       />
     );
   }
-  return <EnvelopeSvg points={points} size={size} />;
+  if (prizeKey === "toy_surprise") {
+    return (
+      <Image
+        source={tierImage(TOY_IMAGES, points)}
+        style={{ width: size, height: size }}
+        resizeMode="contain"
+      />
+    );
+  }
+  return null;
 }
 
 function fillRatio(points: number): number {
@@ -496,25 +513,6 @@ function CandyJarSvg({ points, size }: { points: number; size: number }) {
         </G>
       )}
       <Path d="M52 60 Q52 250 120 250" stroke="#FFFFFF" strokeWidth="3" fill="none" opacity="0.6" />
-    </Svg>
-  );
-}
-
-function EnvelopeSvg({ points, size }: { points: number; size: number }) {
-  const ratio = fillRatio(points);
-  return (
-    <Svg width={size} height={size} viewBox="0 0 240 200">
-      <Rect x="20" y="60" width="200" height="120" rx="10" fill="#FEF3C7" stroke="#1F2937" strokeWidth="3" />
-      <Path d="M20 60 L120 130 L220 60" stroke="#1F2937" strokeWidth="3" fill="none" />
-      {ratio >= 0.25 && <Rect x="160" y="76" width="36" height="42" fill="#FB923C" stroke="#1F2937" strokeWidth="2" />}
-      {ratio >= 0.5 && <Rect x="44" y="76" width="36" height="42" fill="#34D399" stroke="#1F2937" strokeWidth="2" />}
-      {ratio >= 0.75 && <Rect x="102" y="142" width="36" height="28" fill="#F472B6" stroke="#1F2937" strokeWidth="2" />}
-      {ratio >= 1 && (
-        <G>
-          <Circle cx="120" cy="50" r="22" fill="#FACC15" stroke="#1F2937" strokeWidth="3" />
-          <Path d="M120 32 L124 44 L136 44 L126 52 L130 64 L120 56 L110 64 L114 52 L104 44 L116 44 Z" fill="#1F2937" />
-        </G>
-      )}
     </Svg>
   );
 }

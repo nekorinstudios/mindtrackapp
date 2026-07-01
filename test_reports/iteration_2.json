@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 2 (backend-only): verified 'giftcard' -> 'toy_surprise' rename in /api/prizes/options and /api/awards/choice. 11/11 pytest tests passed. All 5 category listings behave correctly (toy_surprise/flowers/candy/treasure_chest -> 200, giftcard -> 400 'Invalid category'). Admin can POST /api/prizes/options for toy_surprise, the option appears in subsequent GET (with correct name, description, mime, image_base64, no _id leak), and DELETE cleans it up. A fresh user POST /api/awards/choice {choice:'toy_surprise'} returns 200 and GET /api/awards/progress reflects choice=='toy_surprise'. Backend logs show no '[migration] giftcard->toy_surprise failed' errors. Note: /api/auth/register schema now requires first_name and last_name (previously accepted 'name'); updated both conftest.py and the new test file to pass first_name/last_name — this is a client-side test fix, not a server issue.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/register", "issue": "Register payload now requires first_name+last_name (previously 'name'). Not a bug per se, but /app/memory/test_credentials.md still documents the older '{email, username, password, name?}' shape. Please update the doc."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prizes_toy_surprise.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results_iter2.xml"
+  ],
+  "action_items": [
+    "Update /app/memory/test_credentials.md: /api/auth/register now expects {email, username, password, first_name, last_name} instead of 'name'.",
+    "Consider adding server-side backward compatibility for 'name' in register (split into first/last) OR clearly document the required fields in the spec/README.",
+    "No functional fixes required for the toy_surprise rename — behavior matches spec end-to-end."
+  ],
+  "critical_code_review_comments": [
+    "server.py L1053: category whitelist correctly updated to {flowers, candy, toy_surprise, treasure_chest}; giftcard now yields 400 'Invalid category' as required.",
+    "server.py L2218-2230: legacy 'giftcard' migration runs on startup with try/except; no errors observed in backend logs. Migration updates both award_progress.choice and prize_options.category.",
+    "server.py L187,199: Literal types on AwardChoiceIn / PrizeOptionIn correctly enforce toy_surprise via Pydantic (client sending 'giftcard' to /api/awards/choice would 422 — good).",
+    "GET /api/prizes/options correctly projects out MongoDB _id ({'_id': 0}) and ISO-serializes created_at — verified in test_6b."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prizes_toy_surprise.py (new)",
+    "/app/backend/tests/conftest.py (register payload updated to first_name/last_name)",
+    "/app/test_reports/iteration_2.json (new)",
+    "/app/test_reports/pytest/pytest_results_iter2.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "N/A (not requested this iteration)"},
+  "seed_data_creation": "Created and cleaned up 1 toy_surprise prize option (po_*). Registered 1 fresh test user (test_toy_<timestamp>@example.com). No lingering test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://symptom-journal-12.preview.emergentagent.com. Admin: admin@mindtrack.app / Admin@12345. IMPORTANT: /api/auth/register now needs first_name & last_name (NOT 'name'); conftest.py is fixed. Prize categories: flowers, candy, toy_surprise, treasure_chest. Award endpoint is /api/awards/choice (not /choose). Use /app/backend/tests/test_prizes_toy_surprise.py for regression of the rename.",
+  "rca_of_issue": "N/A — no server-side bugs. The only observed non-pass on first run was a client-side test payload using the old 'name' field; fixed by sending first_name/last_name per the current RegisterIn model. All 9 requested scenarios pass, including migration-log check."
+}

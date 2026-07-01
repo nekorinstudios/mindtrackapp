@@ -38,7 +38,13 @@ def test_user():
     password = "Test@12345"
     r = requests.post(
         f"{BASE_URL}/api/auth/register",
-        json={"email": email, "username": username, "password": password, "name": "Tester"},
+        json={
+            "email": email,
+            "username": username,
+            "password": password,
+            "first_name": "Test",
+            "last_name": "User",
+        },
         timeout=20,
     )
     assert r.status_code == 200, f"Register failed: {r.status_code} {r.text}"
