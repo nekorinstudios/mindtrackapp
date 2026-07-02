@@ -24,9 +24,8 @@
       "distribution": "store",
       "channel": "production",
       "autoIncrement": true,
-      "image": "latest",
       "android": {
-        "buildType": "aab"
+        "buildType": "app-bundle"
       },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://mindtrack-api-q94j.onrender.com"
