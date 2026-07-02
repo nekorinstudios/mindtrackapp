@@ -22,11 +22,13 @@ services:
     envVars:
       # === REQUIRED — you must set these in the Render dashboard ===
       - key: MONGO_URL
-        sync: false          # sync:false means Render will NOT auto-generate; you paste your Atlas URI
+        sync: false          # sync:false means you paste your Atlas URI in the dashboard
       - key: DB_NAME
         value: mindtrack
       - key: JWT_SECRET
         generateValue: true  # Render will auto-generate a strong random secret
+
+      # === Admin bootstrap (auto-created on first startup) ===
       - key: ADMIN_EMAIL
         value: admin@mindtrackjourney.com
       - key: ADMIN_PASSWORD
@@ -34,20 +36,25 @@ services:
       - key: ADMIN_USERNAME
         value: admin
 
-      # === Integrations — paste your real keys ===
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: STRIPE_PRICE_ID
-        sync: false
+      # === Resend (email service) ===
       - key: RESEND_API_KEY
         sync: false
-      - key: RESEND_FROM_EMAIL
-        value: noreply@mindtrackjourney.com
-      - key: EMERGENT_LLM_KEY
-        sync: false          # optional — only if you use LLM integrations
+      - key: SENDER_EMAIL
+        value: onboarding@resend.dev
+        # ↑ change to noreply@mindtrackjourney.com AFTER you verify your domain in Resend
 
-      # === Frontend origin (used in emails/Stripe return URLs) ===
+      # === Stripe (subscription payments) ===
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PAYMENT_LINK
+        sync: false          # e.g. https://buy.stripe.com/xxx
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false          # whsec_...
+      - key: SUBSCRIPTION_PRICE_USD
+        value: "1.99"
+      - key: SUBSCRIPTION_TRIAL_DAYS
+        value: "7"
+
+      # === Backend's own base URL (used for Stripe return_url etc.) ===
       - key: EXPO_PUBLIC_BACKEND_URL
-        value: https://mindtrackjourney.com
+        value: https://api.mindtrackjourney.com

@@ -52,11 +52,10 @@ This is a step-by-step guide to run your FastAPI backend + MongoDB **outside Eme
    |---|---|
    | `MONGO_URL` | The full Atlas URI from Step A6 |
    | `ADMIN_PASSWORD` | Pick a strong password (e.g. `Admin@YourStrongPass!`) |
-   | `STRIPE_SECRET_KEY` | Your `rk_live_...` restricted key |
-   | `STRIPE_WEBHOOK_SECRET` | Your `whsec_...` from Stripe dashboard |
-   | `STRIPE_PRICE_ID` | Your `price_...` from Stripe dashboard |
    | `RESEND_API_KEY` | Your `re_...` key |
-   | `EMERGENT_LLM_KEY` | Optional, only if you use LLM features. Leave blank otherwise. |
+   | `STRIPE_SECRET_KEY` | Your `rk_live_...` restricted key |
+   | `STRIPE_PAYMENT_LINK` | Your `https://buy.stripe.com/...` payment link |
+   | `STRIPE_WEBHOOK_SECRET` | Your `whsec_...` from Stripe dashboard |
 
 6. Click **Create Blueprint**. Render will start building — takes ~3–5 minutes.
 7. When the deploy is **Live**, note the URL: `https://mindtrack-api.onrender.com`
