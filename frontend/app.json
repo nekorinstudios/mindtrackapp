@@ -59,6 +59,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_THE_PROJECT_ID_CREATED_BY_EAS_INIT"
+      }
     }
   }
 }
