@@ -1,8 +1,36 @@
-"""Smoke tests after requirements.txt cleanup (iteration_6)."""
+"""Deployment smoke tests for the MindTrack backend.
+
+Run this suite after any change that could affect what actually ships to
+production — most importantly:
+
+* Trimming or upgrading `backend/requirements.txt`
+* Renaming or restructuring routes in `backend/server.py`
+* Deploying a new build to Render (or any other host)
+* Rotating environment variables
+
+The tests hit real HTTP endpoints (no mocks) and cover the critical paths
+users depend on: health check, auth login/me, catalog read, journal
+create/delete, and rewards progress read. If any of these fail, do not
+promote the build.
+
+Configuration (all optional — sensible defaults for local dev):
+
+    BASE_URL          Full base URL of the backend under test.
+                      Default: http://localhost:8001
+    SMOKE_ADMIN_EMAIL Admin login identifier (email or username).
+                      Default: admin@mindtrack.app
+    SMOKE_ADMIN_PASSWORD
+                      Admin password.
+                      Default: Admin@12345
+"""
+
 import os
+
 import requests
 
-BASE_URL = "http://localhost:8001"
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8001").rstrip("/")
+ADMIN_EMAIL = os.environ.get("SMOKE_ADMIN_EMAIL", "admin@mindtrack.app")
+ADMIN_PASSWORD = os.environ.get("SMOKE_ADMIN_PASSWORD", "Admin@12345")
 
 
 def test_health():
@@ -16,7 +44,7 @@ def test_health():
 def _login():
     r = requests.post(
         f"{BASE_URL}/api/auth/login",
-        json={"identifier": "admin@mindtrack.app", "password": "Admin@12345"},
+        json={"identifier": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
         timeout=10,
     )
     assert r.status_code == 200, r.text

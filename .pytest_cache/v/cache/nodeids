@@ -40,5 +40,11 @@
   "backend/tests/test_prizes_toy_surprise.py::TestPrizeOptionsCategories::test_4_candy_ok",
   "backend/tests/test_prizes_toy_surprise.py::TestPrizeOptionsCategories::test_5_treasure_chest_ok",
   "backend/tests/test_prizes_toy_surprise.py::TestUserAwardChoiceToySurprise::test_7a_user_choose_toy_surprise",
-  "backend/tests/test_prizes_toy_surprise.py::TestUserAwardChoiceToySurprise::test_7b_progress_reflects_toy_surprise"
+  "backend/tests/test_prizes_toy_surprise.py::TestUserAwardChoiceToySurprise::test_7b_progress_reflects_toy_surprise",
+  "backend/tests/test_requirements_smoke.py::test_auth_me",
+  "backend/tests/test_requirements_smoke.py::test_awards_progress",
+  "backend/tests/test_requirements_smoke.py::test_catalog_symptoms",
+  "backend/tests/test_requirements_smoke.py::test_health",
+  "backend/tests/test_requirements_smoke.py::test_journal_create_and_delete",
+  "backend/tests/test_requirements_smoke.py::test_login"
 ]

@@ -30,6 +30,7 @@ yarn-error.log*
 web-build/
 expo-env.d.ts
 .metro-health-check*
+.metro-cache/
 app-example/
 
 # Native build outputs from `eas build` local prebuild
@@ -148,6 +149,12 @@ dump.rdb
 memory/test_credentials.md
 .cache/
 .ipynb_checkpoints/
+test_reports/
+test_result.md
+
+# Emergent platform metadata (contains local git identity + platform config)
+.gitconfig
+.emergent/
 
 # -----------------------------------------------------------------------------
 # Large binaries / archives (avoid accidental commits)
