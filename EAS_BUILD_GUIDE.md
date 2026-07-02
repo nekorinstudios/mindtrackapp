@@ -111,7 +111,7 @@ You'll see prompts like:
 - **"Generate a new Android Keystore?"** → **Yes** (EAS stores it securely on their servers; you can download a backup any time).
 - The build will queue and run on Expo's servers.
 
-Watch progress at `https://expo.dev/accounts/nekorinstudios/projects/mindtrack/builds`.
+**Track the build progress:** The `eas build` command prints a **build URL** immediately after the build is queued (looks like `https://expo.dev/accounts/<account>/projects/<slug>/builds/<uuid>`). Copy that URL and open it in your browser to watch progress live. Alternatively, log into **https://expo.dev**, open your account, and click your project to find the build under the **Builds** tab. The exact URL varies per account/project, so use whatever the CLI prints.
 
 **Free tier notes:**
 - Free tier = ~1 concurrent build, ~30 builds/month (more than enough for a solo dev).
@@ -133,6 +133,9 @@ When done, EAS gives you a **download link** to your `.aab` (Android App Bundle)
 
 ## 🅶 Step G — Upload your `.aab` and publish
 
+> **📄 Before you submit: your Privacy Policy page MUST exist and be publicly reachable.**
+> Google Play **will reject your submission** during review if `https://mindtrackjourney.com/privacy` returns a 404, a coming-soon page, or a broken link. Host at minimum a plain HTML page that lists: what data you collect (email, symptoms, journal entries, payment info via Stripe), how it's stored (MongoDB Atlas), who it's shared with (only your doctor when you tap Send), and how a user can delete their account. A single well-written page is enough — no fancy template required. **Do this before starting Step G.**
+
 1. In Play Console → click **Create app**.
    - App name: `MindTrack Journey`
    - Default language: English (US)
@@ -146,8 +149,15 @@ When done, EAS gives you a **download link** to your `.aab` (Android App Bundle)
    - Click **Save**.
 
 3. Left sidebar → **Dashboard** → work through the setup checklist:
-   - **App content:** privacy policy URL (host a simple page at `https://mindtrackjourney.com/privacy`), data safety declarations, ads (No), target audience (18+ recommended for a mental health app).
-   - **Main store listing:** app description (short + full), screenshots (need 2 phone, 1 tablet if you support tablets), feature graphic (1024×500 PNG), icon (already in `frontend/assets/images/icon.png`).
+   - **App content:** privacy policy URL (must be live at `https://mindtrackjourney.com/privacy` — see callout above), data safety declarations, ads (No), target audience (18+ recommended for a mental health app).
+   - **Main store listing** — assets Google requires:
+     - **App icon:** 512×512 PNG (Play Store pulls a hi-res version — separate from your in-app icon).
+     - **Feature graphic:** 1024×500 PNG or JPG, no alpha channel.
+     - **Phone screenshots:** **minimum 2, maximum 8**. JPEG or 24-bit PNG (no alpha). Each side between **320px and 3840px**, and the long side can't be more than 2× the short side. 16:9 or 9:16 aspect ratio recommended.
+     - **7-inch tablet screenshots:** optional but **strongly recommended** since your app declares tablet support (`ios.supportsTablet: true` in `app.json`, and Android tablets can install the AAB). Min 1, max 8, same file spec as phone.
+     - **10-inch tablet screenshots:** optional but **strongly recommended** for the same reason. Min 1, max 8. Without tablet screenshots your listing is de-prioritised on tablet search results.
+     - **Short description:** up to 80 characters.
+     - **Full description:** up to 4000 characters.
    - **Pricing:** Free.
 
 4. When the checklist is 100% complete, promote your internal testing build to **Production** or leave it in **Closed testing** while you invite testers.
