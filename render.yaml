@@ -1,0 +1,53 @@
+# Render Blueprint — deploy MindTrack backend for free.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# HOW TO USE:
+#   1. In Render, click "New +" → "Blueprint"
+#   2. Connect your GitHub repo (nekorinstudios/mindtrackapp)
+#   3. Render reads this file and creates the service.
+#   4. In the "Environment" tab, fill in the SECRET values marked below.
+
+services:
+  - type: web
+    name: mindtrack-api
+    runtime: python
+    plan: free              # 512 MB RAM, sleeps after 15 min of inactivity
+    region: oregon          # closest to most US users; change if needed
+    rootDir: backend        # /backend inside your GitHub repo
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn server:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/health
+    autoDeploy: true        # redeploy on every push to main
+
+    envVars:
+      # === REQUIRED — you must set these in the Render dashboard ===
+      - key: MONGO_URL
+        sync: false          # sync:false means Render will NOT auto-generate; you paste your Atlas URI
+      - key: DB_NAME
+        value: mindtrack
+      - key: JWT_SECRET
+        generateValue: true  # Render will auto-generate a strong random secret
+      - key: ADMIN_EMAIL
+        value: admin@mindtrackjourney.com
+      - key: ADMIN_PASSWORD
+        sync: false          # paste your admin password in the dashboard
+      - key: ADMIN_USERNAME
+        value: admin
+
+      # === Integrations — paste your real keys ===
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: noreply@mindtrackjourney.com
+      - key: EMERGENT_LLM_KEY
+        sync: false          # optional — only if you use LLM integrations
+
+      # === Frontend origin (used in emails/Stripe return URLs) ===
+      - key: EXPO_PUBLIC_BACKEND_URL
+        value: https://mindtrackjourney.com

@@ -225,6 +225,12 @@ app = FastAPI(title="MindTrack API")
 api = APIRouter(prefix="/api")
 
 
+# Health check — used by Render/uptime monitors
+@api.get("/health")
+async def health():
+    return {"ok": True, "service": "mindtrack-api"}
+
+
 # --- Seed / catalog ---
 SYMPTOM_CATALOG = {
     "ADHD": [

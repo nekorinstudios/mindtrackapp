@@ -10,6 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.nekorinstudios.mindtrackjourney",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Allow optional music features.",
         "UIBackgroundModes": [
@@ -18,6 +19,7 @@
       }
     },
     "android": {
+      "package": "com.nekorinstudios.mindtrackjourney",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#4F8FF7"
