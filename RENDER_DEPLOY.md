@@ -29,7 +29,11 @@ This is a step-by-step guide to run your FastAPI backend + MongoDB **outside Eme
    - Username: `mindtrack_app`
    - Password: click "Autogenerate Secure Password" → **copy it to a text file** (you'll paste it into Render).
    - Click **Create Database User**.
-4. **"Where would you like to connect from?"** → choose **My Local Environment**. Click **Add My Current IP Address**, then also click **"Add a Different IP Address"** and enter `0.0.0.0/0` (this allows Render to connect from anywhere — safe because it's still password-protected).
+4. **"Where would you like to connect from?"** → allow access from anywhere so Render can reach the DB.
+   - **Newer Atlas UI:** click **"Allow Access From Anywhere"** — this button auto-fills the required entry for you.
+   - **Older Atlas UI:** click **"Add a Different IP Address"** and enter `0.0.0.0/0` manually.
+   - Both do exactly the same thing (whitelist all IPs); use whichever your dashboard shows. This is safe because the DB is still password-protected.
+   - Also click **Add My Current IP Address** so you can connect from your laptop later.
    - Click **Finish and Close**.
 5. On the cluster page, click **Connect** → **Drivers** → Python → 3.12+.
    - Copy the connection string. It looks like:
@@ -48,18 +52,20 @@ This is a step-by-step guide to run your FastAPI backend + MongoDB **outside Eme
 4. Render reads `render.yaml` from the repo root and shows a preview. Click **Apply**.
 5. Render will now ask you to fill in the **secret env vars** (any with `sync: false`). Paste values:
 
-   | Key | Value |
-   |---|---|
-   | `MONGO_URL` | The full Atlas URI from Step A6 |
-   | `ADMIN_PASSWORD` | Pick a strong password (e.g. `Admin@YourStrongPass!`) |
-   | `RESEND_API_KEY` | Your `re_...` key |
-   | `STRIPE_SECRET_KEY` | Your `rk_live_...` restricted key |
-   | `STRIPE_PAYMENT_LINK` | Your `https://buy.stripe.com/...` payment link |
-   | `STRIPE_WEBHOOK_SECRET` | Your `whsec_...` from Stripe dashboard |
+   | Key | Required? | Value |
+   |---|---|---|
+   | `MONGO_URL` | **required** | The full Atlas URI from Step A6 |
+   | `ADMIN_PASSWORD` | **required** | Pick a strong password (e.g. `Admin@YourStrongPass!`) |
+   | `STRIPE_SECRET_KEY` | recommended | Your `rk_live_...` restricted key (needed for the paywall) |
+   | `STRIPE_PAYMENT_LINK` | recommended | Your `https://buy.stripe.com/...` payment link |
+   | `STRIPE_WEBHOOK_SECRET` | recommended | Your `whsec_...` from Stripe dashboard |
+   | `RESEND_API_KEY` | **optional — see note below** | Your `re_...` key |
+
+   > **⚠️ You can skip `RESEND_API_KEY` for the first deploy.** See Step D for details on what breaks without it and how to add it later.
 
 6. Click **Create Blueprint**. Render will start building — takes ~3–5 minutes.
-7. When the deploy is **Live**, note the URL: `https://mindtrack-api.onrender.com`
-8. Test it in your browser: visit `https://mindtrack-api.onrender.com/api/health` — should return `{"ok": true}` (or similar).
+7. When the deploy is **Live**, note the URL **that Render assigns to your service** — it's shown at the top of your service dashboard and looks like `https://<something>.onrender.com`. The exact subdomain depends on availability; Render may pick something like `mindtrack-api.onrender.com`, `mindtrack-api-abc12.onrender.com`, or another variant. **Copy whatever URL Render actually gave you.**
+8. Test it in your browser: visit `https://<your-render-url>/api/health` — should return `{"ok": true, "service": "mindtrack-api"}`.
 
 ---
 
@@ -77,19 +83,37 @@ This is a step-by-step guide to run your FastAPI backend + MongoDB **outside Eme
 
 ---
 
-## 🅳 Step D — Update Stripe & Resend to use the new URLs
+## 🅳 Step D — Update Stripe & configure Resend (Resend is optional)
 
-**Stripe:**
+**Stripe (required if you want the paywall to work):**
 1. Go to **https://dashboard.stripe.com/webhooks** → click your existing webhook.
 2. Click **Update endpoint** and change the URL to:
    `https://api.mindtrackjourney.com/api/stripe/webhook`
 3. Save. (The `STRIPE_WEBHOOK_SECRET` stays the same.)
 
-**Resend:**
+**Resend (OPTIONAL — skip on first deploy if you want):**
+
+Resend is **not required** for the initial deployment. The backend gracefully degrades when `RESEND_API_KEY` is missing — you can add it later without redeploying anything else.
+
+**What works without Resend configured:**
+- ✅ Signup, login, JWT auth
+- ✅ All symptom, task, medicine, journal, energy, rewards tracking
+- ✅ Stripe subscriptions and the paywall
+- ✅ Admin panel and music/prize management
+- ✅ Streaks, graphs, points ledger, trophy room
+
+**What DOESN'T work until you configure Resend:**
+- ❌ **"Send to Doctor" reports** — the Send tab won't email HTML summaries
+- ❌ **Password reset emails** — users can't reset a forgotten password via email
+- ❌ **Email verification banner** — the "verify your email" flow won't send the verification link
+- ❌ **Admin notifications** when a user claims a reward
+
+**To configure Resend when you're ready:**
 1. Go to **https://resend.com/domains** → **Add Domain**.
 2. Enter: `mindtrackjourney.com`.
 3. Resend gives you DNS records (SPF, DKIM, DMARC). Add each one at your registrar just like the CNAME in Step C.
 4. Wait for verification (usually < 1 hour). Once verified, Resend will send emails from `noreply@mindtrackjourney.com` to **any** address (not just your own).
+5. In Render dashboard → your service → **Environment** → add `RESEND_API_KEY` and update `SENDER_EMAIL` to `noreply@mindtrackjourney.com` → click **Save Changes**. Render will auto-redeploy.
 
 ---
 
@@ -115,6 +139,49 @@ That's it — your production build will call your Render backend instead of Eme
 | Backend logs show "MONGO_URL not set" | You forgot to paste it in Render env vars. Add and redeploy. |
 | Custom domain shows "Certificate pending" for > 1 hour | Double-check the CNAME points to the exact target Render gave you (no trailing dot issues). |
 | Stripe webhook returns 400 | The `STRIPE_WEBHOOK_SECRET` in Render doesn't match the one shown in the Stripe dashboard. Regenerate and re-paste. |
+
+---
+
+## ✅ Deployment Verification Checklist
+
+Before moving on to `EAS_BUILD_GUIDE.md`, confirm **every** item below passes. If any fail, fix them first — a broken backend will make the mobile app appear broken in ways that are hard to debug from the client side.
+
+### 🔗 Backend reachability
+- [ ] Render dashboard shows your service status as **Live** (green dot).
+- [ ] `https://<your-render-url>/api/health` returns `{"ok": true, "service": "mindtrack-api"}` in a browser.
+- [ ] `https://api.mindtrackjourney.com/api/health` returns the same response (custom domain propagated + SSL cert issued).
+- [ ] Render → **Logs** tab shows the line `INFO: Application startup complete.` with no red error stack traces.
+
+### 🗄️ Database connectivity
+- [ ] Render logs do **not** contain `ServerSelectionTimeoutError` or `MONGO_URL not set`.
+- [ ] MongoDB Atlas → **Network Access** shows the "allow anywhere" (`0.0.0.0/0`) entry as **Active**.
+- [ ] Atlas → **Database Users** shows `mindtrack_app` with **Read and write to any database** privilege.
+
+### 🔐 Auth smoke test
+- [ ] `POST https://api.mindtrackjourney.com/api/auth/login` with body `{"identifier":"admin@mindtrackjourney.com","password":"<your ADMIN_PASSWORD>"}` returns HTTP **200** with an `access_token` field.
+  - (You can test this with a browser extension like **Talend API Tester**, **Postman**, or the free web app **hoppscotch.io**.)
+- [ ] `POST /api/auth/register` with a fresh test user returns **200** and creates the account (verifiable in Atlas → Collections → `users`).
+
+### 💳 Stripe wiring (if you set the Stripe keys)
+- [ ] Stripe dashboard → **Webhooks** → your endpoint shows the URL is now `https://api.mindtrackjourney.com/api/stripe/webhook`.
+- [ ] Click **Send test webhook** in Stripe → pick `checkout.session.completed` → response should be **200 OK** (Render logs should show the event was received).
+
+### ⚙️ Env vars sanity check
+- [ ] Render → your service → **Environment** tab lists all 14 keys from `render.yaml` with non-empty values (except `RESEND_API_KEY` if you chose to skip it).
+- [ ] `EXPO_PUBLIC_BACKEND_URL` in Render equals `https://api.mindtrackjourney.com` exactly.
+- [ ] `DB_NAME` value matches the database segment in your `MONGO_URL` (default: `mindtrack`).
+
+### 🚫 Regression check
+- [ ] `GET /api/catalog/symptoms` **without** an Authorization header returns **401** (endpoint is auth-gated — expected behavior).
+- [ ] Same request **with** a valid `Bearer <token>` returns **200** with the symptom catalog JSON.
+
+### 📧 Resend (only if you configured it)
+- [ ] Resend → **Domains** shows `mindtrackjourney.com` as **Verified**.
+- [ ] `POST /api/auth/forgot-password` for your own email successfully sends a reset link (check your inbox within ~1 min).
+
+---
+
+Once every applicable box is checked, you're clear to move on to **`EAS_BUILD_GUIDE.md`** and build your Android app.
 
 ---
 
