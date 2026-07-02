@@ -1,8 +1,13 @@
 {
   "expo": {
-    "name": "MindTrack",
-    "slug": "mindtrack",
+    "name": "MindTrack Journey",
+    "slug": "mindtrack-journey",
+    "owner": "nekorinstudios",
+    "description": "Track ADHD, Bipolar, Autism and AuDHD symptoms daily. Log medicines, tasks, and moods, earn rewards for consistency, and share progress reports with your doctor.",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mindtrack",
@@ -11,6 +16,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nekorinstudios.mindtrackjourney",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Allow optional music features.",
         "UIBackgroundModes": [
