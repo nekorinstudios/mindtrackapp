@@ -172,3 +172,4 @@ memory/test_credentials.md
 chainlit.md
 .chainlit
 .ac
+*.env
