@@ -46,12 +46,16 @@ npm install -g yarn
 
 # In the frontend directory:
 yarn install
+
+# Install expo-dev-client (needed for the development profile in eas.json)
+yarn expo install expo-dev-client
 ```
 
-Then install the EAS CLI globally:
+Then install the EAS CLI globally (v16+ required for SDK 54):
 
 ```bash
-npm install -g eas-cli
+npm install -g eas-cli@latest
+eas --version   # verify it's >= 16.6.1
 ```
 
 ---
@@ -154,13 +158,12 @@ When done, EAS gives you a **download link** to your `.aab` (Android App Bundle)
 
 ## 🔁 Rebuilding after code changes
 
-Every time you update the app:
+With `appVersionSource: "remote"` and `autoIncrement: true` in `eas.json`, EAS manages `versionCode`/`buildNumber` automatically — you don't have to bump them by hand.
 
 1. Pull the latest code (`git pull`).
-2. Increment `expo.version` in `app.json` (e.g. `1.0.0` → `1.0.1`).
-3. Also increment `expo.android.versionCode` (integer, starts at 1) in `app.json` — Google Play REQUIRES this to be higher than the last upload.
-4. Run `eas build --platform android --profile production` again.
-5. Upload the new `.aab` to Play Console → **Create new release** → **Roll out to production**.
+2. Optionally increment the **user-facing** `expo.version` in `app.json` (e.g. `1.0.0` → `1.0.1`) — this is what shows on the store listing.
+3. Run `eas build --platform android --profile production`.
+4. Upload the new `.aab` to Play Console → **Create new release** → **Roll out to production**.
 
 ---
 
