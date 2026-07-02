@@ -2403,12 +2403,59 @@ async def shutdown():
 
 app.include_router(api)
 
+# --- CORS ---
+# Mobile React Native clients ignore CORS entirely (native HTTP stacks don't
+# enforce it). This middleware is therefore only about locking down the web
+# builds and any browser-based tools that talk to the API.
+#
+# Anti-pattern replaced: `allow_origins=["*"]` combined with
+# `allow_credentials=True` is invalid per the CORS spec — browsers reject
+# credentialed responses that use a wildcard `Access-Control-Allow-Origin`.
+_DEFAULT_CORS_ORIGINS = [
+    # Production web
+    "https://mindtrackjourney.com",
+    "https://www.mindtrackjourney.com",
+    # Local development (Expo web, Metro, legacy Expo)
+    "http://localhost:3000",
+    "http://localhost:8081",
+    "http://localhost:19000",
+    "http://localhost:19006",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8081",
+    "http://127.0.0.1:19000",
+    "http://127.0.0.1:19006",
+]
+
+# Extra origins can be added via env without a code change
+# (e.g. `CORS_ORIGINS=https://staging.mindtrackjourney.com,https://foo.bar`).
+_env_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+CORS_ORIGINS = list(dict.fromkeys(_DEFAULT_CORS_ORIGINS + _env_origins))
+
+# Regex allowlist — used to keep the Emergent dev-preview working (the exact
+# subdomain rotates per job) and any *.mindtrackjourney.com subdomain.
+# Override via `CORS_ORIGIN_REGEX` if you need something different.
+CORS_ORIGIN_REGEX = os.environ.get(
+    "CORS_ORIGIN_REGEX",
+    r"^https://([a-zA-Z0-9-]+\.)*emergentagent\.com$"
+    r"|^https://([a-zA-Z0-9-]+\.)*mindtrackjourney\.com$",
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "Stripe-Signature",
+    ],
+    expose_headers=["Content-Disposition"],
+    max_age=600,
 )
 
 logging.basicConfig(

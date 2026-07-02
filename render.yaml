@@ -58,3 +58,13 @@ services:
       # === Backend's own base URL (used for Stripe return_url etc.) ===
       - key: EXPO_PUBLIC_BACKEND_URL
         value: https://api.mindtrackjourney.com
+
+      # === CORS (optional overrides) ===
+      # Extra allowed origins beyond the hardcoded defaults.
+      # Comma-separated. Leave empty unless you add staging/custom domains.
+      - key: CORS_ORIGINS
+        value: ""
+      # Regex allowlist for dynamic subdomains (Emergent preview, mindtrackjourney.com).
+      # Leave empty to use the built-in default.
+      - key: CORS_ORIGIN_REGEX
+        value: ""
