@@ -28,7 +28,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://mindtrack-api-q94j.onrender.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://api.mindtrackjourney.com"
       }
     }
   },
