@@ -29,7 +29,7 @@
         "buildType": "aab"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://api.mindtrackjourney.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://mindtrack-api-q94j.onrender.com"
       }
     }
   },
