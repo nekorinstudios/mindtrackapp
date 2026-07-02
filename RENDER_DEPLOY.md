@@ -119,14 +119,17 @@ Resend is **not required** for the initial deployment. The backend gracefully de
 
 ## 🅴 Step E — Point your app's frontend at the new backend
 
-The Expo app reads `EXPO_PUBLIC_BACKEND_URL` at build time. When you build with EAS (see `EAS_BUILD_GUIDE.md`), create a file in the `frontend/` folder:
+Your production backend URL is already configured in **`frontend/eas.json`** under the `production` profile's `env` block:
 
-**`frontend/.env.production`** (copy from `.env.production.example`):
-```env
-EXPO_PUBLIC_BACKEND_URL=https://api.mindtrackjourney.com
+```json
+"env": {
+  "EXPO_PUBLIC_BACKEND_URL": "https://api.mindtrackjourney.com"
+}
 ```
 
-That's it — your production build will call your Render backend instead of Emergent.
+EAS injects this at build time, so **no `.env.production` file is needed**. If your API domain ever changes, edit this single line in `eas.json`, commit, and rebuild.
+
+That's it — your next `eas build --platform android --profile production` will call your Render backend automatically. See `EAS_BUILD_GUIDE.md` for the full build walkthrough.
 
 ---
 

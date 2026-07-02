@@ -60,21 +60,22 @@ eas --version   # verify it's >= 16.6.1
 
 ---
 
-## 🅲 Step C — Point the frontend at your production backend
+## 🅲 Step C — Confirm your production API URL
 
-Create a `.env.production` file in the **frontend/** directory (or copy the example):
+**Good news: nothing to do here for now.** Your production backend URL is already baked into `frontend/eas.json` under the `production` profile's `env` block:
 
-```bash
-cp .env.production.example .env.production
+```json
+"production": {
+  ...
+  "env": {
+    "EXPO_PUBLIC_BACKEND_URL": "https://api.mindtrackjourney.com"
+  }
+}
 ```
 
-Edit `.env.production` and make sure it says:
+EAS injects this value at build time, so **you don't need to create a `.env` file** for production builds. If you ever change your API domain, just update this single line in `eas.json`, commit, and rebuild.
 
-```env
-EXPO_PUBLIC_BACKEND_URL=https://api.mindtrackjourney.com
-```
-
-**⚠️ Do NOT commit** `.env.production` to Git if you have secrets in there. It's fine to commit if it only contains public URLs.
+> **For local dev only:** if you want to run `npx expo start` locally against your Render backend (instead of the Emergent preview), create a plain `.env` file in `frontend/` with `EXPO_PUBLIC_BACKEND_URL=https://api.mindtrackjourney.com`. This does **not** affect EAS production builds — `eas.json` always wins for those.
 
 ---
 
@@ -196,7 +197,7 @@ You already have `bundleIdentifier: com.nekorinstudios.mindtrackjourney` set in 
 | `EAS Build failed: Metro bundling error` | Run `yarn install` again locally, then re-try. |
 | `Insufficient permissions on Play Console` | Google's account approval isn't complete yet. Wait it out. |
 | App crashes on real device but works in Expo Go | Some libraries only run in a native build. Check `expo-notifications` needs a build, not Expo Go. |
-| API calls fail in production build | Wrong `EXPO_PUBLIC_BACKEND_URL` in `.env.production`. Check the value and rebuild. |
+| API calls fail in production build | Wrong `EXPO_PUBLIC_BACKEND_URL` value in `frontend/eas.json` (`production.env` block). Update it there, commit, and rebuild. |
 | Build succeeds but AAB won't upload | Google Play requires `android.package` in `app.json` to be unique and not already used. You have `com.nekorinstudios.mindtrackjourney` — should be fine. |
 
 ---
