@@ -1,50 +1,71 @@
-# Welcome to your Expo app 👋
+# MindTrack Journey — Frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This directory contains the **Expo (React Native) mobile & web app** for MindTrack Journey — a mental-health tracker for ADHD, Bipolar, Autism, and AuDHD.
 
-## Get started
+> **📖 The main project README is at the repo root:** [`../README.md`](../README.md)
+>
+> That file covers project overview, features, tech stack, environment variables, deployment guides, and license.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Frontend-specific quickstart
 
 ```bash
-npm run reset-project
+yarn install
+yarn start                    # or: npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Open the app:
+- **Expo Go** — scan the QR code with the Expo Go app on iOS/Android
+- **iOS Simulator** — press `i` in the terminal
+- **Android Emulator** — press `a`
+- **Web** — press `w`
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
+## Routing
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+This app uses **Expo Router** with file-based routing. Every file inside `app/` becomes a route:
 
-## Join the community
+```
+app/index.tsx                  → /
+app/login.tsx                  → /login
+app/(tabs)/home.tsx            → /home  (inside the tab bar)
+app/(tabs)/tasks.tsx           → /tasks
+```
 
-Join our community of developers creating universal apps.
+The `(tabs)` folder groups the bottom-tab navigator. `_layout.tsx` files define layout wrappers.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+
+## Configuration files
+
+| File | Purpose |
+|---|---|
+| `app.json` | Expo config — app name, icon, splash, bundle IDs, permissions |
+| `eas.json` | EAS Build profiles (development / preview / production) |
+| `tsconfig.json` | TypeScript compiler options |
+| `metro.config.js` | Metro bundler config **(do not modify)** |
+| `.env` | Local dev environment variables (optional; not committed) |
+
+---
+
+## Build & release
+
+See [`../EAS_BUILD_GUIDE.md`](../EAS_BUILD_GUIDE.md) for the full walkthrough from `eas build` to Google Play submission.
+
+Quick reference:
+
+```bash
+eas login
+eas build --platform android --profile production
+eas build --platform ios --profile production
+```
+
+Production builds automatically pick up `EXPO_PUBLIC_BACKEND_URL` from `eas.json` — no `.env.production` file needed.
+
+---
+
+## License
+
+Proprietary — © 2026 Nekorin Studios. See root [`README.md`](../README.md#-license) for details.
