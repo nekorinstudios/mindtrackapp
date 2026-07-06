@@ -15,7 +15,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.nekorinstudios.mindtrackjourney",
+      "bundleIdentifier": "mindtrack.app",
       "config": {
         "usesNonExemptEncryption": false
       },
